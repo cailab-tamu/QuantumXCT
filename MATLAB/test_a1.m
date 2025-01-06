@@ -37,4 +37,7 @@ M = randsample(S,50);
 T = table(M.Counts,M.Probabilities,M.MeasuredStates, ...
     VariableNames=["Counts","Probabilities","States"]);
 
-
+% Generate OpenQASM code for the circuit
+qasmCode = generateQASM(C);
+% Display the generated QASM code
+disp(qasmCode);
