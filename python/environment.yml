@@ -15,6 +15,7 @@ dependencies:
   - scikit-learn
   - qiskit
   - qiskit-aer
+  - qiskit-ibmq-provider
   - qiskit-machine-learning[torch]
   - ipykernel
   - pytorch 
