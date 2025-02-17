@@ -1,24 +1,15 @@
 load 'lite_PDGF_signaling_slows_ovarian_cancer GSM7019822_GSM7019823_GSM7019824.mat'
 
-
-
 CancerGenes = ["TGFBR2","SMAD3","HIF1A","PDGFB"];
 FibroblastGenes = ["TGFB1", "IL6", "PDGFRB"];
-
-%testbatch = "Fibroblasts (Mo)";
-%testgenes = FibroblastGenes;
-
-testbatch = "Cancer Cells (Mo)";
-testgenes = CancerGenes;
-
-
-
 
 
 hx=gui.myFigure;
 
 nexttile
-[patn, X] = e_getnX(testbatch, testgenes, sce);
+batquery = "Cancer Cells (Mo)";
+genquery = CancerGenes;
+[patn, X] = e_getnX(batquery, genquery, sce);
 
 assert(sum(patn)==size(X,2))
 
@@ -28,13 +19,11 @@ pt = patn./sum(patn);             % target cell state freq.
 nexttile
 bar(f0)
 set(gca,'XTick',1:length(f0));
-set(gca,'XTickLabel', testgenes);
+set(gca,'XTickLabel', CancerGenes);
 title('Frequency of Gene')
 
 nexttile
-p=e_patnfreq(f0);
-bar(p);
-set(gca,'XTick',1:length(p));
+bar(e_patnfreq(f0));
 title('Theoretical Frequencies')
 
 % ------------
@@ -67,6 +56,10 @@ ylabel('# of cells');
 xlabel('Expression pattern');
 title('Quantum Simulation')
 
+% nexttile
+% batquery = "Cancer Cells (Co)";
+% genquery = CancerGenes;
+% [patn, X] = e_getnX(batquery, genquery, sce);
 
 hx.FigureHandle.Position = [2.4650    0.2077    1.2700    0.4200]*1000;
 hx.show;
