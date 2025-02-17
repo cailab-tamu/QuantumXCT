@@ -7,7 +7,8 @@ figure;
 nexttile
 batquery = "Cancer Cells (Mo)";
 genquery = CancerGenes;
-[n1] = getn(batquery, genquery, sce);
+[n1, X] = getn(batquery, genquery, sce);
+
 nexttile
 batquery = "Cancer Cells (Co)";
 genquery = CancerGenes;
@@ -24,7 +25,7 @@ batquery = "Fibroblasts (Co)";
 genquery = FibroblastGenes;
 [n4] = getn(batquery, genquery, sce);
 
-function [n] = getn(batquery, genquery, sce)
+function [n, X] = getn(batquery, genquery, sce)
     idxc = sce.c_batch_id == batquery;
     [y, idxg] = ismember(genquery, sce.g);
     assert(all(y))
