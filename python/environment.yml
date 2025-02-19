@@ -13,10 +13,9 @@ dependencies:
   - pandas
   - matplotlib
   - scikit-learn
-  - qiskit
-  - qiskit-aer
-  - qiskit-ibmq-provider
-  - qiskit-machine-learning[torch]
+  - qiskit=1.3
+  - qiskit-ibm-runtime
+  - qiskit[visualization]
   - ipykernel
   - pytorch 
   - torchvision 
