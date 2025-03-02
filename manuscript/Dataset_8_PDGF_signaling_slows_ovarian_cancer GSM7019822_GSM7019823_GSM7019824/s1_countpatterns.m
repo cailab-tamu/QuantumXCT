@@ -7,23 +7,23 @@ figure;
 nexttile
 batquery = "Cancer Cells (Mo)";
 genquery = CancerGenes;
-[n1, X] = getn(batquery, genquery, sce);
+[n1, X1] = getn(batquery, genquery, sce);
 
 nexttile
 batquery = "Cancer Cells (Co)";
 genquery = CancerGenes;
-[n2] = getn(batquery, genquery, sce);
+[n2, X2] = getn(batquery, genquery, sce);
 
 %figure;
 nexttile
 batquery = "Fibroblasts (Mo)";
 genquery = FibroblastGenes;
-[n3] = getn(batquery, genquery, sce);
+[n3, X3] = getn(batquery, genquery, sce);
 
 nexttile
 batquery = "Fibroblasts (Co)";
 genquery = FibroblastGenes;
-[n4] = getn(batquery, genquery, sce);
+[n4, X4] = getn(batquery, genquery, sce);
 
 function [n, X] = getn(batquery, genquery, sce)
     idxc = sce.c_batch_id == batquery;

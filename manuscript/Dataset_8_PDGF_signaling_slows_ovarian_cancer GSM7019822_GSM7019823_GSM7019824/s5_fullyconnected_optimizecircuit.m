@@ -18,28 +18,29 @@ pt_c = patn./sum(patn);             % target cell state freq.
 
 [layer_base] = in_12layers([f0_f; f0_c]);
 
-theta = zeros(3 ,1);
-layer_inte = [cryGate(1,4,theta(1)); ...
-    cryGate(1,5,theta(2)); ...
-    cryGate(7,3,theta(3))];
+theta = zeros(4 ,1);
+layer_inte = [  cryGate(1,4,theta(1)); ...
+                cryGate(1,5,theta(2)); ...
+                cryGate(7,3,theta(3));...
+                cryGate(6,2,theta(4))];
 C = quantumCircuit([layer_base; layer_inte]);
 
 
 %%
-
 methodid = 2;
+initheta = zeros(1, 4);
 switch methodid
     case 1
         options = optimset('Display','iter');
-        [optimtheta, fval] = fminunc(@i_obj, [0 0 0], options, pt_f, pt_c, C);       
+        [optimtheta, fval] = fminunc(@i_obj, initheta, options, pt_f, pt_c, C);       
     case 2
         options = optimset('Display','iter');
-        [optimtheta, fval] = fminsearch(@i_obj,[0 0 0], options,pt_f,pt_c,C);
+        [optimtheta, fval] = fminsearch(@i_obj,initheta, options,pt_f,pt_c,C);
     case 3
         options = optimoptions('fmincon','Display','iter');
-        lb=-pi*ones(3,1);
-        ub=pi*ones(3,1);
-        [xa,fval] = fmincon(@i_obj,[0 0 0],[],[],[],[], ...
+        lb=-pi*ones(4,1);
+        ub=pi*ones(4,1);
+        [xa,fval] = fmincon(@i_obj,initheta,[],[],[],[], ...
             lb,ub,[],options,pt_f,pt_c,C);        
 end
 
@@ -49,6 +50,7 @@ nexttile
     C.Gates(15).Angles = optimtheta(1);
     C.Gates(16).Angles = optimtheta(2);
     C.Gates(17).Angles = optimtheta(3);
+    C.Gates(18).Angles = optimtheta(4);
 plot(C);
 title(sprintf('Minimal total KL = %.3f\n(t_1 = %.3f, t_2 = %.3f, t_3 = %.3f)', ...
     fval, optimtheta(1), optimtheta(2), optimtheta(3)));
@@ -105,6 +107,7 @@ function [y] = i_obj(theta, pt_f, pt_c, C)
     C.Gates(15).Angles = theta(1);
     C.Gates(16).Angles = theta(2);
     C.Gates(17).Angles = theta(3);
+    C.Gates(18).Angles = theta(4);
     S = simulate(C);    
     [~, po_f] = querystates(S,[1 2 3]);     % observed state pattern in fibroblast
     [~, po_c] = querystates(S,[4 5 6 7]);   % observed state pattern in cancer   
