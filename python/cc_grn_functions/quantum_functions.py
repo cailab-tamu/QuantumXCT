@@ -19,10 +19,13 @@ def create_grn_ansatz(ng, cell_type):
 
     # Gene activation probabilities (RY rotations after Hadamard)
     params_act = [Parameter(f'{cell_type}_act_{i}') for i in range(ng)]
+    #params_act2 = [Parameter(f'{cell_type}_act2_{i}') for i in range(ng)]
+
     for i in range(ng):
         ansatz_grn.h(i)
         ansatz_grn.rz(params_act[i], i)  # Use RZ for activation
-
+        #ansatz_grn.rx(params_act2[i], i)  # Use RZ for activation
+    
     # Gene interaction CRX gates
     for i in range(ng):
         for j in range(ng):
@@ -140,9 +143,12 @@ def evaluate_and_plot_ansatz(ansatz, params, shots=1024, title="Quantum Sampler 
 def create_parameter_dictionaries(combined_qc, ct1_percentages):
     """Creates static and variable parameter dictionaries."""
     # Get Hadamard parameters
-    params_ct = [param for param in combined_qc.parameters if 'ct1_' in param.name or 'ct2_' in param.name
-                                                            and 'grn' not in param.name 
-                                                            and 'lr' not in param.name ]
+    # params_ct = [param for param in combined_qc.parameters if 'ct1_' in param.name or 'ct2_' in param.name
+    #                                                         and 'grn' not in param.name 
+    #                                                         and 'lr' not in param.name 
+    #                                                         and 'act2' not in param.name]
+    params_ct = [param for param in combined_qc.parameters if '_act_' in param.name]
+
     static_params = {}
     for i, val in enumerate(ct1_percentages):
         static_params[params_ct[i]] = val
@@ -212,9 +218,11 @@ def create_circuit_lr2(ansatz_grn_ct1, ansatz_grn_ct2, cell_type1='ct1', cell_ty
 
     # Gene activation probabilities (RZ rotations after Hadamard) for ct1
     params_act_ct1 = [Parameter(f'{cell_type1}_act_{i}') for i in range(ng_ct1)]
+    #params_act_ct12 = [Parameter(f'{cell_type1}_act2_{i}') for i in range(ng_ct1)]
     for i in range(ng_ct1):
         ccgrn_circuit.h(i)
         ccgrn_circuit.rz(params_act_ct1[i], i)
+        #ccgrn_circuit.rx(params_act_ct12[i], i)
 
     # Gene interaction CRX gates for ct1
     for i in range(ng_ct1):
@@ -226,9 +234,11 @@ def create_circuit_lr2(ansatz_grn_ct1, ansatz_grn_ct2, cell_type1='ct1', cell_ty
 
     # Gene activation probabilities (RZ rotations after Hadamard) for ct2
     params_act_ct2 = [Parameter(f'{cell_type2}_act_{i}') for i in range(ng_ct2)]
+    #params_act_ct22 = [Parameter(f'{cell_type2}_act2_{i}') for i in range(ng_ct2)]
     for i, j in enumerate(range(ng_ct1, num_features)):
         ccgrn_circuit.h(j)
         ccgrn_circuit.rz(params_act_ct2[i], j)  # Corrected indexing here
+        #ccgrn_circuit.rx(params_act_ct22[i], j)  # Corrected indexing here
 
     # Gene interaction CRX gates for ct2
     for i, q1 in enumerate(range(ng_ct1, num_features)):
@@ -245,6 +255,8 @@ def create_circuit_lr2(ansatz_grn_ct1, ansatz_grn_ct2, cell_type1='ct1', cell_ty
                 raise ValueError("Qubit indices in interactions are out of range.")
             param_name = f"lr_{q1}_{q2}"
             angle_param = Parameter(param_name)
+            #ccgrn_circuit.cry(angle_param, q1, q2)
             ccgrn_circuit.crx(angle_param, q1, q2)
+
 
     return ccgrn_circuit
