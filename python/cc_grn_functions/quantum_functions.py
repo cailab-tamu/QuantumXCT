@@ -171,7 +171,6 @@ def create_parameter_dictionaries(combined_qc, ct1_percentages):
     return static_params, variable_params
 
 from qiskit.quantum_info import Statevector
-
 def cost_func_vqe(params, combined_qc, hamiltonian, estimator):  # combined_qc here
     """Cost function for VQE"""
     bound_qc = combined_qc.assign_parameters(params)  # Assign parameters INSIDE cost_func_vqe
@@ -186,15 +185,8 @@ def cost_func_wrapper(variable_values, all_params, combined_qc, interaction_obse
         all_params[param] = variable_values[i]
     return cost_func_vqe(all_params, combined_qc, interaction_observable, estimator) # Pass combined_qc
 
-# Create the static and variable parameter dictionaries directly from the circuit.
-def create_parameter_dictionaries_from_circuit(circuit):
-    """Creates static and variable parameter dictionaries directly from the circuit."""
-    static_params = {param: None for param in circuit.parameters if 'lr_' not in param.name}
-    variable_params = {param.name: param for param in circuit.parameters if 'lr_' in param.name}
-    return static_params, variable_params
 
 from qiskit.circuit import QuantumCircuit, Parameter
-
 def create_circuit_lr2(ansatz_grn_ct1, ansatz_grn_ct2, cell_type1='ct1', cell_type2='ct2', interactions=None):
     """Concatenates two circuits and includes interactions using CRY rotations with parameterized angles."""
     ng_ct1 = ansatz_grn_ct1.num_qubits
@@ -249,5 +241,12 @@ def create_circuit_lr2(ansatz_grn_ct1, ansatz_grn_ct2, cell_type1='ct1', cell_ty
             #ccgrn_circuit.cry(angle_param, q1, q2)
             ccgrn_circuit.crx(angle_param, q1, q2)
 
-
     return ccgrn_circuit
+
+
+# Create the static and variable parameter dictionaries directly from the circuit.
+def create_parameter_dictionaries_from_circuit(circuit):
+    """Creates static and variable parameter dictionaries directly from the circuit."""
+    static_params = {param: None for param in circuit.parameters if 'lr_' not in param.name}
+    variable_params = {param: 0.0 for param in circuit.parameters if 'lr_' in param.name}
+    return static_params, variable_params

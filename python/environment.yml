@@ -22,3 +22,7 @@ dependencies:
   - torchaudio
   - pylatexenc
   - ipywidgets
+  - pip
+  - pip:
+    - magic-imputation
+    - qiskit_aer
