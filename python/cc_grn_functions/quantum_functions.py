@@ -41,46 +41,33 @@ import matplotlib.pyplot as plt
 from collections import Counter
 from qiskit.quantum_info import SparsePauliOp
 
-def create_interaction_observable_from_histogram(joint_counts, num_features, min_ones=1, standardize=False, rm_all_ones=False):
-    """Creates a SparsePauliOp from joint histogram counts, 
-       considering interactions with a minimum number of '1's.
+def create_interaction_observable_from_histogram(joint_counts: Counter, num_features: int, min_ones: int = 1, rm_all_ones: bool=False):
+    """Creates a SparsePauliOp from joint histogram counts,
+        favoring bit strings with odd number of '1's.
+
     Args:
         joint_counts: A Counter object from create_joint_histogram.
         num_features: The total number of qubits.
-        min_ones: The minimum number of '1's required in a bit string 
+        min_ones: The minimum number of '1's required in a bit string
                   for the interaction to be included.
-        standardize: If True, standardizes the counts before calculating strengths.
+        rm_all_ones: If True, removes the bit string with all '1's.
     Returns:
         A SparsePauliOp observable.
     """
     interaction_strength_list = []
-
-    # Prepare counts for standardization if needed
-    counts_array = np.array(list(joint_counts.values()))
-    if standardize:
-        mean_count = np.mean(counts_array)
-        std_count = np.std(counts_array)
-        if std_count == 0:  # Handle case where all counts are the same
-            standardized_counts = np.zeros_like(counts_array)
-        else:
-            standardized_counts = (counts_array - mean_count) / std_count
-        
-        # Create a dictionary to map bitstrings to standardized counts
-        bitstring_to_std_count = dict(zip(joint_counts.keys(), standardized_counts))
 
     for bit_string, count in joint_counts.items():
         num_ones = bit_string.count('1')  # Count the number of '1's
 
         if num_ones == num_features and rm_all_ones:
             continue
-        
+
         if num_ones >= min_ones:  # Consider only if at least min_ones '1's are present
             nodes = tuple(i for i, bit in enumerate(bit_string) if bit == '1')
-            
-            if standardize:
-                strength = -bitstring_to_std_count[bit_string]  # Use standardized count
-            else:
-                strength = -count  # Use original count
+
+            #strength = -float(count)
+            strength = float(count)
+            #strength = -1.0*(-1.0*count)**(num_ones) 
 
             pauli_string = ""
             for i in range(num_features):
@@ -88,7 +75,34 @@ def create_interaction_observable_from_histogram(joint_counts, num_features, min
                     pauli_string += "Z"
                 else:
                     pauli_string += "I"
+
             interaction_strength_list.append((pauli_string, strength))
+
+    interaction_observable = SparsePauliOp.from_list(interaction_strength_list)
+    return interaction_observable
+
+
+def create_interaction_observable_general(interactions, num_features):
+    """Creates a SparsePauliOp observable for generalized interactions.
+
+    Args:
+        interactions: A dictionary where keys are tuples of node indices 
+                     (e.g., (0, 1), (0, 0, 2), (0, 1, 2, 3)) and 
+                     values are the corresponding interaction strengths.
+        num_features: The total number of qubits.
+
+    Returns:
+        A SparsePauliOp observable.
+    """
+    interaction_strength_list = []
+    for nodes, strength in interactions.items():
+        pauli_string = ""
+        for i in range(num_features):
+            if i in nodes:  # Check if the current qubit is in the interaction
+                pauli_string += "Z"
+            else:
+                pauli_string += "I"
+        interaction_strength_list.append((pauli_string, strength))
 
     interaction_observable = SparsePauliOp.from_list(interaction_strength_list)
     return interaction_observable
@@ -125,12 +139,12 @@ def evaluate_and_plot_ansatz(ansatz, params, shots=1024, title="Quantum Sampler 
         x_labels = list(sorted_counts.keys())
         y_values = list(sorted_counts.values())
 
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=(12, 8))
         plt.bar(x_labels, y_values)
-        plt.xlabel("Measurement Outcomes")
-        plt.ylabel("Counts")
-        plt.title(title)
-        plt.xticks(rotation=45, ha='right')
+        plt.xlabel("Measurement Outcomes", fontsize=16)
+        plt.ylabel("Counts", fontsize=16)
+        plt.title(title, fontsize=18)
+        plt.xticks(rotation=45, ha='right', fontsize=14)
         plt.tight_layout()
         plt.show()
 
@@ -172,32 +186,6 @@ def cost_func_wrapper(variable_values, all_params, combined_qc, interaction_obse
         all_params[param] = variable_values[i]
     return cost_func_vqe(all_params, combined_qc, interaction_observable, estimator) # Pass combined_qc
 
-
-def create_interaction_observable_general(interactions, num_features):
-    """Creates a SparsePauliOp observable for generalized interactions.
-
-    Args:
-        interactions: A dictionary where keys are tuples of node indices 
-                     (e.g., (0, 1), (0, 0, 2), (0, 1, 2, 3)) and 
-                     values are the corresponding interaction strengths.
-        num_features: The total number of qubits.
-
-    Returns:
-        A SparsePauliOp observable.
-    """
-    interaction_strength_list = []
-    for nodes, strength in interactions.items():
-        pauli_string = ""
-        for i in range(num_features):
-            if i in nodes:  # Check if the current qubit is in the interaction
-                pauli_string += "Z"
-            else:
-                pauli_string += "I"
-        interaction_strength_list.append((pauli_string, strength))
-
-    interaction_observable = SparsePauliOp.from_list(interaction_strength_list)
-    return interaction_observable
-
 # Create the static and variable parameter dictionaries directly from the circuit.
 def create_parameter_dictionaries_from_circuit(circuit):
     """Creates static and variable parameter dictionaries directly from the circuit."""
@@ -231,6 +219,8 @@ def create_circuit_lr2(ansatz_grn_ct1, ansatz_grn_ct2, cell_type1='ct1', cell_ty
                 param_name = f'{cell_type1}_grn_{i}_{j}'
                 param = Parameter(param_name)
                 ccgrn_circuit.cry(param, i, j)
+                #ccgrn_circuit.crx(param, i, j)
+
 
     # Gene activation probabilities (RZ rotations after Hadamard) for ct2
     params_act_ct2 = [Parameter(f'{cell_type2}_act_{i}') for i in range(ng_ct2)]
@@ -247,6 +237,7 @@ def create_circuit_lr2(ansatz_grn_ct1, ansatz_grn_ct2, cell_type1='ct1', cell_ty
                 param_name = f'{cell_type2}_grn_{i}_{j}'
                 param = Parameter(param_name)
                 ccgrn_circuit.cry(param, q1, q2)
+                #ccgrn_circuit.crx(param, q1, q2)
 
     # Add interactions if provided
     if interactions:

@@ -43,7 +43,7 @@ def plot_joint_histogram(joint_counts, num_qubits, reverse_bits=False, features=
     # Unzip the sorted pairs
     sorted_bit_strings, sorted_counts = zip(*sorted_pairs)
 
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(12, 8))
     plt.bar(sorted_bit_strings, sorted_counts)
 
     # Create x-axis label with feature mapping
@@ -53,27 +53,28 @@ def plot_joint_histogram(joint_counts, num_qubits, reverse_bits=False, features=
             for i in range(num_qubits - 1, -1, -1):  # Iterate in reverse order for qn ... q0
                 xlabel_text += f"q{i}={features[i]}, "
             xlabel_text = xlabel_text[:-2] + ")"  # Remove trailing comma and space
-            plt.xlabel(xlabel_text)
+            plt.xlabel(xlabel_text, fontsize=14)
         else:
             xlabel_text = f"Bit String ("
             for i in range(0, num_qubits):
                 xlabel_text += f"q{i}={features[i]}, "
             xlabel_text = xlabel_text[:-2] + ")"
-            plt.xlabel(xlabel_text)
+            plt.xlabel(xlabel_text, fontsize=14)
 
     else:
         if reverse_bits:
-            plt.xlabel(f"Bit String (q{num_qubits-1} ... q0)")
+            plt.xlabel(f"Bit String (q{num_qubits-1} ... q0)", fontsize=14)
         else:
-            plt.xlabel(f"Bit String (q0 ... q{num_qubits-1})")
+            plt.xlabel(f"Bit String (q0 ... q{num_qubits-1})", fontsize=14)
 
         
-    plt.ylabel("Frequency")
-    plt.title("Joint Histogram of Boolean Columns")
-    plt.xticks(rotation=45, ha="right")
+    plt.ylabel("Frequency", fontsize=16)
+    plt.title("Joint Histogram of Boolean Columns", fontsize=18)
+    plt.xticks(rotation=45, ha="right", fontsize=14)
+    plt.yticks(fontsize=14) # Increase y-ticks font size
 
     for i, count in enumerate(sorted_counts):
-        plt.text(sorted_bit_strings[i], count, f"{count}", ha='center', va='bottom')
+        plt.text(sorted_bit_strings[i], count, f"{count}", ha='center', va='bottom', fontsize=12) # Increase text annotation font size
 
     plt.tight_layout()
     plt.show()
