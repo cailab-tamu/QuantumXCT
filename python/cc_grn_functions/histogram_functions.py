@@ -18,6 +18,26 @@ def create_joint_histogram(Xct1bool):
     return joint_counts, sorted(list(bit_strings))
 
 
+def create_percent_joint_histogram(Xct1bool):
+    """
+    Creates a joint histogram of boolean columns from a NumPy array,
+    normalized by total number of counts and multiplied by 100 to get percentages.
+    """
+    num_rows, num_cols = Xct1bool.shape
+    joint_counts = Counter()
+    bit_strings = set()
+
+    for row in Xct1bool:
+        bit_string = "".join(["1" if val else "0" for val in row])
+        joint_counts[bit_string] += 1
+        bit_strings.add(bit_string)
+
+    total_counts = num_rows #or sum(joint_counts.values()) if you want to be more robust.
+    percent_joint_counts = {bit_string: (count / total_counts) * 100 for bit_string, count in joint_counts.items()}
+
+    return percent_joint_counts, sorted(list(bit_strings))
+
+
 def plot_joint_histogram(joint_counts, num_qubits, reverse_bits=False, features=None):
     """Plots the joint histogram, accounting for potential bit reversal."""
     
@@ -68,13 +88,18 @@ def plot_joint_histogram(joint_counts, num_qubits, reverse_bits=False, features=
             plt.xlabel(f"Bit String (q0 ... q{num_qubits-1})", fontsize=14)
 
         
-    plt.ylabel("Frequency", fontsize=16)
     plt.title("Joint Histogram of Boolean Columns", fontsize=18)
     plt.xticks(rotation=45, ha="right", fontsize=14)
     plt.yticks(fontsize=14) # Increase y-ticks font size
 
     for i, count in enumerate(sorted_counts):
-        plt.text(sorted_bit_strings[i], count, f"{count}", ha='center', va='bottom', fontsize=12) # Increase text annotation font size
+        if isinstance(count, float):
+            plt.text(sorted_bit_strings[i], count, f"{count:.2f}", ha='center', va='bottom', fontsize=12)
+            plt.ylabel("Frequency (%)", fontsize=16)
+
+        else:
+            plt.text(sorted_bit_strings[i], count, f"{count}", ha='center', va='bottom', fontsize=12)
+            plt.ylabel("Frequency", fontsize=16)
 
     plt.tight_layout()
     plt.show()

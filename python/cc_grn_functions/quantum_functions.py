@@ -65,8 +65,8 @@ def create_interaction_observable_from_histogram(joint_counts: Counter, num_feat
         if num_ones >= min_ones:  # Consider only if at least min_ones '1's are present
             nodes = tuple(i for i, bit in enumerate(bit_string) if bit == '1')
 
-            #strength = -float(count)
-            strength = float(count)
+            strength = -float(count)
+            #strength = float(count)
             #strength = -1.0*(-1.0*count)**(num_ones) 
 
             pauli_string = ""
@@ -84,7 +84,6 @@ def create_interaction_observable_from_histogram(joint_counts: Counter, num_feat
 
 def create_interaction_observable_general(interactions, num_features):
     """Creates a SparsePauliOp observable for generalized interactions.
-
     Args:
         interactions: A dictionary where keys are tuples of node indices 
                      (e.g., (0, 1), (0, 0, 2), (0, 1, 2, 3)) and 
@@ -94,6 +93,7 @@ def create_interaction_observable_general(interactions, num_features):
     Returns:
         A SparsePauliOp observable.
     """
+    strength = -strength
     interaction_strength_list = []
     for nodes, strength in interactions.items():
         pauli_string = ""
@@ -242,7 +242,6 @@ def create_circuit_lr2(ansatz_grn_ct1, ansatz_grn_ct2, cell_type1='ct1', cell_ty
             ccgrn_circuit.crx(angle_param, q1, q2)
 
     return ccgrn_circuit
-
 
 # Create the static and variable parameter dictionaries directly from the circuit.
 def create_parameter_dictionaries_from_circuit(circuit):
