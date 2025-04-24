@@ -1,6 +1,6 @@
 load 'lite_PDGF_signaling_slows_ovarian_cancer GSM7019822_GSM7019823_GSM7019824.mat'
 
-FibroblastGenes = ["TGFB1", "RPP30", "PDGFRB"];
+FibroblastGenes = ["TGFB1", "F3", "PDGFRB"];
 CancerGenes =     ["TGFBR2","SMAD3","HIF1A","PDGFB"];
 
 
@@ -88,7 +88,7 @@ set(gca,'XTickLabel',states_c);
 ylabel('Freq. of cells');
 xlabel('Expression pattern');
 title('Cancer Cells')
-%legend({'Observed','Simulated','Theoretical'})
+legend({'Observed','Simulated','Theoretical'})
 
 nexttile
 bar([pt_f po_f e_patnfreq(f0_f)])

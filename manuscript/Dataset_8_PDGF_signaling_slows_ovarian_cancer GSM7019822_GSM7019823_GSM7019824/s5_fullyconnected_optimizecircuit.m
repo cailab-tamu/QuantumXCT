@@ -1,6 +1,6 @@
 load 'lite_PDGF_signaling_slows_ovarian_cancer GSM7019822_GSM7019823_GSM7019824.mat'
 
-FibroblastGenes = ["TGFB1", "RPP30", "PDGFRB"];
+FibroblastGenes = ["TGFB1", "F3", "PDGFRB"];
 CancerGenes =     ["TGFBR2","SMAD3","HIF1A","PDGFB"];
 
 
@@ -18,6 +18,7 @@ pt_c = patn./sum(patn);             % target cell state freq.
 
 [layer_base] = in_12layers([f0_f; f0_c]);
 
+
 theta = zeros(4 ,1);
 layer_inte = [  cryGate(1,4,theta(1)); ...
                 cryGate(1,5,theta(2)); ...
@@ -27,7 +28,7 @@ C = quantumCircuit([layer_base; layer_inte]);
 
 
 %%
-methodid = 2;
+methodid = 1;
 initheta = zeros(1, 4);
 switch methodid
     case 1
@@ -116,18 +117,10 @@ function [y] = i_obj(theta, pt_f, pt_c, C)
     y = kl1+kl2;
 end
 
-
-
-
-
 function [layer] = in_12layers(f0)
-    n = length(f0);
-    layer1 = [];
-    for k=1:n, layer1 = [layer1; ryGate(k,2*asin(sqrt(f0(k))))]; end
-    % theta0 = pi*((rand(n,1)*2)-1);
-    theta0 = zeros(n,1);
-    layer2 = [];
-    for k=1:n, layer2 = [layer2; rxGate(k, theta0(k))]; end
+    n = length(f0);    
+    layer1 = ryGate(1:n, 2*asin(sqrt(f0)));
+    layer2 = rxGate(1:n, zeros(n,1));
     layer = [layer1; layer2];
 end
 
