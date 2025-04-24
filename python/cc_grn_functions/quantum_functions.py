@@ -1,7 +1,11 @@
+import numpy as np
 import matplotlib.pyplot as plt
+from collections import Counter
 from qiskit.circuit import QuantumCircuit, Parameter
 from qiskit.circuit.library import TwoLocal
-import numpy as np
+from qiskit.quantum_info import SparsePauliOp, Statevector
+from qiskit.primitives import StatevectorEstimator, StatevectorSampler
+from qiskit.visualization import plot_histogram
 
 def create_grn_ansatz(ng, cell_type):
     """
@@ -19,12 +23,10 @@ def create_grn_ansatz(ng, cell_type):
 
     # Gene activation probabilities (RY rotations after Hadamard)
     params_act = [Parameter(f'{cell_type}_act_{i}') for i in range(ng)]
-    #params_act2 = [Parameter(f'{cell_type}_act2_{i}') for i in range(ng)]
 
     for i in range(ng):
         ansatz_grn.h(i)
         ansatz_grn.rz(params_act[i], i)  # Use RZ for activation
-        #ansatz_grn.rx(params_act2[i], i)  # Use RZ for activation
     
     # Gene interaction CRX gates
     for i in range(ng):
@@ -33,13 +35,61 @@ def create_grn_ansatz(ng, cell_type):
                 param_name = f'{cell_type}_grn_{i}_{j}'
                 param = Parameter(param_name)
                 ansatz_grn.cry(param, i, j)
+                #ansatz_grn.crx(param, i, j)
+
 
     return ansatz_grn
 
-import numpy as np
-import matplotlib.pyplot as plt
-from collections import Counter
-from qiskit.quantum_info import SparsePauliOp
+def create_circuit_lr2(ansatz_grn_ct1, ansatz_grn_ct2, cell_type1='ct1', cell_type2='ct2', interactions=None):
+    """Concatenates two circuits and includes interactions using CRY rotations with parameterized angles."""
+    ng_ct1 = ansatz_grn_ct1.num_qubits
+    ng_ct2 = ansatz_grn_ct2.num_qubits
+    cell_type1 = cell_type1.lower()
+    cell_type2 = cell_type2.lower()
+    num_features = ng_ct1 + ng_ct2
+    ccgrn_circuit = QuantumCircuit(num_features, name=f"CC_GRN_Ansatz")
+
+    # Gene activation probabilities (RZ rotations after Hadamard) for CT1
+    params_act_ct1 = [Parameter(f'{cell_type1}_act_{i}') for i in range(ng_ct1)]
+    for i in range(ng_ct1):
+        ccgrn_circuit.h(i)
+        ccgrn_circuit.rz(params_act_ct1[i], i)
+
+    # Gene interaction CRX gates for ct1
+    for i in range(ng_ct1):
+        for j in range(ng_ct1):
+            if i != j:
+                param_name = f'{cell_type1}_grn_{i}_{j}'
+                param = Parameter(param_name)
+                ccgrn_circuit.cry(param, i, j)
+                #ccgrn_circuit.crx(param, i, j)
+
+    # Gene activation probabilities (RZ rotations after Hadamard) for CT2
+    params_act_ct2 = [Parameter(f'{cell_type2}_act_{i}') for i in range(ng_ct2)]
+    for i, j in enumerate(range(ng_ct1, num_features)):
+        ccgrn_circuit.h(j)
+        ccgrn_circuit.rz(params_act_ct2[i], j)  # Corrected indexing here
+
+    # Gene interaction CRX gates for ct2
+    for i, q1 in enumerate(range(ng_ct1, num_features)):
+        for j, q2 in enumerate(range(ng_ct1, num_features)):
+            if q1 != q2:
+                param_name = f'{cell_type2}_grn_{i}_{j}'
+                param = Parameter(param_name)
+                ccgrn_circuit.cry(param, q1, q2)
+                #ccgrn_circuit.crx(param, q1, q2)
+
+    # Add interactions if provided LR info here
+    if interactions:
+        for (q1, q2) in interactions.keys():
+            if not (0 <= q1 < num_features and 0 <= q2 < num_features):
+                raise ValueError("Qubit indices in interactions are out of range.")
+            param_name = f"lr_{q1}_{q2}"
+            angle_param = Parameter(param_name)
+            ccgrn_circuit.crx(angle_param, q1, q2)
+            #ccgrn_circuit.cry(angle_param, q1, q2)
+
+    return ccgrn_circuit
 
 def create_interaction_observable_from_histogram(joint_counts: Counter, num_features: int, min_ones: int = 1, rm_all_ones: bool=False):
     """Creates a SparsePauliOp from joint histogram counts,
@@ -93,9 +143,9 @@ def create_interaction_observable_general(interactions, num_features):
     Returns:
         A SparsePauliOp observable.
     """
-    strength = -strength
     interaction_strength_list = []
     for nodes, strength in interactions.items():
+        strength = -strength
         pauli_string = ""
         for i in range(num_features):
             if i in nodes:  # Check if the current qubit is in the interaction
@@ -106,14 +156,6 @@ def create_interaction_observable_general(interactions, num_features):
 
     interaction_observable = SparsePauliOp.from_list(interaction_strength_list)
     return interaction_observable
-
-
-import matplotlib.pyplot as plt
-from qiskit.primitives import StatevectorEstimator, StatevectorSampler
-#from qiskit_ibm_runtime import QiskitRuntimeService, SamplerV2 as Sampler  # If using IBM Runtime
-from qiskit.circuit import QuantumCircuit, Parameter
-from qiskit.quantum_info import SparsePauliOp, Statevector
-from qiskit.visualization import plot_histogram
 
 def evaluate_and_plot_ansatz(ansatz, params, shots=1024, title="Quantum Sampler Results"):
     """Evaluates a quantum ansatz, plots results and circuit, and prints counts."""
@@ -170,7 +212,6 @@ def create_parameter_dictionaries(combined_qc, ct1_percentages):
     variable_params = [param for param in combined_qc.parameters if param not in static_params]
     return static_params, variable_params
 
-from qiskit.quantum_info import Statevector
 def cost_func_vqe(params, combined_qc, hamiltonian, estimator):  # combined_qc here
     """Cost function for VQE"""
     bound_qc = combined_qc.assign_parameters(params)  # Assign parameters INSIDE cost_func_vqe
@@ -184,64 +225,6 @@ def cost_func_wrapper(variable_values, all_params, combined_qc, interaction_obse
     for i, param in enumerate(variable_params):
         all_params[param] = variable_values[i]
     return cost_func_vqe(all_params, combined_qc, interaction_observable, estimator) # Pass combined_qc
-
-
-from qiskit.circuit import QuantumCircuit, Parameter
-def create_circuit_lr2(ansatz_grn_ct1, ansatz_grn_ct2, cell_type1='ct1', cell_type2='ct2', interactions=None):
-    """Concatenates two circuits and includes interactions using CRY rotations with parameterized angles."""
-    ng_ct1 = ansatz_grn_ct1.num_qubits
-    ng_ct2 = ansatz_grn_ct2.num_qubits
-    cell_type1 = cell_type1.lower()
-    cell_type2 = cell_type2.lower()
-    num_features = ng_ct1 + ng_ct2
-    ccgrn_circuit = QuantumCircuit(num_features, name=f"CC_GRN_Ansatz")
-
-    # Gene activation probabilities (RZ rotations after Hadamard) for ct1
-    params_act_ct1 = [Parameter(f'{cell_type1}_act_{i}') for i in range(ng_ct1)]
-    #params_act_ct12 = [Parameter(f'{cell_type1}_act2_{i}') for i in range(ng_ct1)]
-    for i in range(ng_ct1):
-        ccgrn_circuit.h(i)
-        ccgrn_circuit.rz(params_act_ct1[i], i)
-        #ccgrn_circuit.rx(params_act_ct12[i], i)
-
-    # Gene interaction CRX gates for ct1
-    for i in range(ng_ct1):
-        for j in range(ng_ct1):
-            if i != j:
-                param_name = f'{cell_type1}_grn_{i}_{j}'
-                param = Parameter(param_name)
-                ccgrn_circuit.cry(param, i, j)
-                #ccgrn_circuit.crx(param, i, j)
-
-
-    # Gene activation probabilities (RZ rotations after Hadamard) for ct2
-    params_act_ct2 = [Parameter(f'{cell_type2}_act_{i}') for i in range(ng_ct2)]
-    #params_act_ct22 = [Parameter(f'{cell_type2}_act2_{i}') for i in range(ng_ct2)]
-    for i, j in enumerate(range(ng_ct1, num_features)):
-        ccgrn_circuit.h(j)
-        ccgrn_circuit.rz(params_act_ct2[i], j)  # Corrected indexing here
-        #ccgrn_circuit.rx(params_act_ct22[i], j)  # Corrected indexing here
-
-    # Gene interaction CRX gates for ct2
-    for i, q1 in enumerate(range(ng_ct1, num_features)):
-        for j, q2 in enumerate(range(ng_ct1, num_features)):
-            if q1 != q2:
-                param_name = f'{cell_type2}_grn_{i}_{j}'
-                param = Parameter(param_name)
-                ccgrn_circuit.cry(param, q1, q2)
-                #ccgrn_circuit.crx(param, q1, q2)
-
-    # Add interactions if provided
-    if interactions:
-        for (q1, q2) in interactions.keys():
-            if not (0 <= q1 < num_features and 0 <= q2 < num_features):
-                raise ValueError("Qubit indices in interactions are out of range.")
-            param_name = f"lr_{q1}_{q2}"
-            angle_param = Parameter(param_name)
-            #ccgrn_circuit.cry(angle_param, q1, q2)
-            ccgrn_circuit.crx(angle_param, q1, q2)
-
-    return ccgrn_circuit
 
 # Create the static and variable parameter dictionaries directly from the circuit.
 def create_parameter_dictionaries_from_circuit(circuit):
