@@ -1,8 +1,10 @@
-load 'lite_PDGF_signaling_slows_ovarian_cancer GSM7019822_GSM7019823_GSM7019824.mat'
+function s5_fullyconnected_optimizecircuit()
+load('lite_PDGF_signaling_slows_ovarian_cancer GSM7019822_GSM7019823_GSM7019824.mat','sce');
 
 FibroblastGenes = ["TGFB1", "F3", "PDGFRB"];
 CancerGenes =     ["TGFBR2","SMAD3","HIF1A","PDGFB"];
 
+N = 7;
 
 testbatch = "Fibroblasts (Co)";
 testgenes = FibroblastGenes;
@@ -26,6 +28,7 @@ layer_inte = [  cryGate(1,4,theta(1)); ...
                 cryGate(6,2,theta(4))];
 C = quantumCircuit([layer_base; layer_inte]);
 
+plot(C)
 
 %%
 methodid = 1;
@@ -48,10 +51,10 @@ end
 
 figure;
 nexttile
-    C.Gates(15).Angles = optimtheta(1);
-    C.Gates(16).Angles = optimtheta(2);
-    C.Gates(17).Angles = optimtheta(3);
-    C.Gates(18).Angles = optimtheta(4);
+    C.Gates(N+1).Angles = optimtheta(1);
+    C.Gates(N+2).Angles = optimtheta(2);
+    C.Gates(N+3).Angles = optimtheta(3);
+    C.Gates(N+4).Angles = optimtheta(4);
 plot(C);
 title(sprintf('Minimal total KL = %.3f\n(t_1 = %.3f, t_2 = %.3f, t_3 = %.3f)', ...
     fval, optimtheta(1), optimtheta(2), optimtheta(3)));
@@ -91,7 +94,7 @@ set(gca,'XTickLabel',states_c);
 ylabel('Freq. of cells');
 xlabel('Expression pattern');
 title('Cancer Cells')
-%legend({'Observed','Simulated','Theoretical'})
+legend({'Observed','Simulated','Theoretical'})
 
 nexttile
 bar([pt_f po_f e_patnfreq(f0_f)])
@@ -105,10 +108,11 @@ title('Fibroblasts')
 
 
 function [y] = i_obj(theta, pt_f, pt_c, C)
-    C.Gates(15).Angles = theta(1);
-    C.Gates(16).Angles = theta(2);
-    C.Gates(17).Angles = theta(3);
-    C.Gates(18).Angles = theta(4);
+    % N = 7;
+    C.Gates(N+1).Angles = theta(1);
+    C.Gates(N+2).Angles = theta(2);
+    C.Gates(N+3).Angles = theta(3);
+    C.Gates(N+4).Angles = theta(4);
     S = simulate(C);    
     [~, po_f] = querystates(S,[1 2 3]);     % observed state pattern in fibroblast
     [~, po_c] = querystates(S,[4 5 6 7]);   % observed state pattern in cancer   
@@ -118,10 +122,11 @@ function [y] = i_obj(theta, pt_f, pt_c, C)
 end
 
 function [layer] = in_12layers(f0)
-    n = length(f0);    
+    n = length(f0);
     layer1 = ryGate(1:n, 2*asin(sqrt(f0)));
-    layer2 = rxGate(1:n, zeros(n,1));
-    layer = [layer1; layer2];
+    % layer2 = rxGate(1:n, zeros(n,1));
+    layer = [layer1];
 end
 
 
+end
