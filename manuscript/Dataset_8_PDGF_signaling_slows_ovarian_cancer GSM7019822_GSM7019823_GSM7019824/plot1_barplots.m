@@ -1,4 +1,3 @@
-function s5_fullyconnected_optimizecircuit()
 load('lite_PDGF_signaling_slows_ovarian_cancer GSM7019822_GSM7019823_GSM7019824.mat','sce');
 
 FibroblastGenes = ["TGFB1", "F3", "PDGFRB"];
@@ -55,22 +54,21 @@ nexttile
     C.Gates(N+2).Angles = optimtheta(2);
     C.Gates(N+3).Angles = optimtheta(3);
     C.Gates(N+4).Angles = optimtheta(4);
-plot(C);
-title(sprintf('Minimal total KL = %.3f\n(t_1 = %.3f, t_2 = %.3f, t_3 = %.3f)', ...
-    fval, optimtheta(1), optimtheta(2), optimtheta(3)));
+%plot(C);
+%title(sprintf('Minimal total KL = %.3f\n(t_1 = %.3f, t_2 = %.3f, t_3 = %.3f)', ...
+%    fval, optimtheta(1), optimtheta(2), optimtheta(3)));
 
 S = simulate(C);    
 [states_f, po_f] = querystates(S,[1 2 3]);     % observed state pattern in fibroblast
 [states_c, po_c] = querystates(S,[4 5 6 7]);   % observed state pattern in cancer   
 
-% nexttile
-% bar(pt_f)
-% set(gca,'XTick',1:length(states_f));
-% set(gca,'XTickLabel',states_f);
-% ylabel('# of cells');
-% xlabel('Expression pattern');
-% title('Observed Pattern in Fibroblasts')
-% 
+bar(pt_f)
+set(gca,'XTick',1:length(states_f));
+set(gca,'XTickLabel',states_f);
+ylabel('# of cells');
+xlabel('Expression pattern');
+title('Observed Pattern in Fibroblasts (Co)')
+
 % nexttile
 % bar(po_f)
 % set(gca,'XTick',1:length(states_f));
@@ -78,37 +76,61 @@ S = simulate(C);
 % ylabel('# of cells');
 % xlabel('Expression pattern');
 % title('Quantum Simulation in Fibroblasts')
-% 
-% nexttile
-% bar(pt_c)
-% set(gca,'XTick',1:length(states_c));
-% set(gca,'XTickLabel',states_c);
-% ylabel('# of cells');
-% xlabel('Expression pattern');
-% title('Observed Pattern in Cancer Cells')
 
 nexttile
-bar([pt_c po_c e_patnfreq(f0_c)])
+bar(pt_c)
 set(gca,'XTick',1:length(states_c));
 set(gca,'XTickLabel',states_c);
-ylabel('Freq. of cells');
+ylabel('# of cells');
 xlabel('Expression pattern');
-title('Cancer Cells')
-legend({'Observed','Simulated','Theoretical'})
+title('Observed Pattern in Cancer Cells (Co)')
+
+% nexttile
+% bar([pt_c po_c e_patnfreq(f0_c)])
+% set(gca,'XTick',1:length(states_c));
+% set(gca,'XTickLabel',states_c);
+% ylabel('Freq. of cells');
+% xlabel('Expression pattern');
+% title('Cancer Cells')
+% legend({'Observed','Simulated','Theoretical'})
+
+% nexttile
+% bar([pt_f po_f e_patnfreq(f0_f)])
+% set(gca,'XTick',1:length(states_f));
+% set(gca,'XTickLabel',states_f);
+% ylabel('# of cells');
+% xlabel('Expression pattern');
+% title('Fibroblasts')
+% legend({'Observed','Simulated','Theoretical'})
 
 nexttile
-bar([pt_f po_f e_patnfreq(f0_f)])
+testbatch = "Fibroblasts (Mo)";
+testgenes = FibroblastGenes;
+[patn, X] = e_getnX(testbatch, testgenes, sce, false);
+f0_f = sum(X,2)./size(X,2);         % per gene initial activate freq.
+pt_f = patn./sum(patn);             % target cell state freq.
+bar(pt_f)
 set(gca,'XTick',1:length(states_f));
 set(gca,'XTickLabel',states_f);
 ylabel('# of cells');
 xlabel('Expression pattern');
-title('Fibroblasts')
-%legend({'Observed','Simulated','Theoretical'})
+title('Observed Pattern in Fibroblasts (Mo)')
 
-
+nexttile
+testbatch = "Cancer Cells (Mo)";
+testgenes = CancerGenes;
+[patn, X] = e_getnX(testbatch, testgenes, sce, false);
+f0_c = sum(X,2)./size(X,2);         % per gene initial activate freq.
+pt_c = patn./sum(patn);             % target cell state freq.
+bar(pt_c)
+set(gca,'XTick',1:length(states_c));
+set(gca,'XTickLabel',states_c);
+ylabel('# of cells');
+xlabel('Expression pattern');
+title('Observed Pattern in Cancer Cells (Mo)')
 
 function [y] = i_obj(theta, pt_f, pt_c, C)
-    % N = 7;
+    N = 7;
     C.Gates(N+1).Angles = theta(1);
     C.Gates(N+2).Angles = theta(2);
     C.Gates(N+3).Angles = theta(3);
@@ -129,4 +151,3 @@ function [layer] = in_12layers(f0)
 end
 
 
-end
