@@ -115,9 +115,9 @@ def create_interaction_observable_from_histogram(joint_counts: Counter, num_feat
         if num_ones >= min_ones:  # Consider only if at least min_ones '1's are present
             nodes = tuple(i for i, bit in enumerate(bit_string) if bit == '1')
 
-            strength = -float(count)
+            #strength = -float(count)
             #strength = float(count)
-            #strength = -1.0*(-1.0*count)**(num_ones) 
+            strength = count*(-1.0)**(num_ones+1) 
 
             pauli_string = ""
             for i in range(num_features):
