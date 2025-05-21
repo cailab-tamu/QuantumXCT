@@ -23,11 +23,17 @@ def create_grn_ansatz(ng, cell_type):
 
     # Gene activation probabilities (RY rotations after Hadamard)
     params_act = [Parameter(f'{cell_type}_act_{i}') for i in range(ng)]
-
+    params_post_act = [Parameter(f'{cell_type}_post_acti_{i}') for i in range(ng)]
+    params_post_act2 = [Parameter(f'{cell_type}_post_acti2_{i}') for i in range(ng)]
     for i in range(ng):
         ansatz_grn.h(i)
+        #ansatz_grn.ry(params_post_act[i], i)
+        #ansatz_grn.rx(params_post_act[i], i)
         ansatz_grn.rz(params_act[i], i)  # Use RZ for activation
-    
+        #ansatz_grn.ry(params_post_act2[i], i)
+        #ansatz_grn.rx(params_post_act2[i], i)
+        #ansatz_grn.rz(params_post_act2[i], i)
+
     # Gene interaction CRX gates
     for i in range(ng):
         for j in range(ng):
@@ -51,9 +57,16 @@ def create_circuit_lr2(ansatz_grn_ct1, ansatz_grn_ct2, cell_type1='ct1', cell_ty
 
     # Gene activation probabilities (RZ rotations after Hadamard) for CT1
     params_act_ct1 = [Parameter(f'{cell_type1}_act_{i}') for i in range(ng_ct1)]
+    params_post_act_ct1 = [Parameter(f'{cell_type1}_post_acti_{i}') for i in range(ng_ct1)]
+    params_post_act2_ct1 = [Parameter(f'{cell_type1}_post_acti2_{i}') for i in range(ng_ct1)]
     for i in range(ng_ct1):
-        ccgrn_circuit.h(i)
+        #ccgrn_circuit.h(i)
+        #ccgrn_circuit.ry(params_post_act_ct1[i], i)
+        #ccgrn_circuit.rx(params_post_act_ct1[i], i)
         ccgrn_circuit.rz(params_act_ct1[i], i)
+        #ccgrn_circuit.ry(params_post_act2_ct1[i], i)
+        #ccgrn_circuit.rx(params_post_act2_ct1[i], i)
+        #ccgrn_circuit.rz(params_post_act2_ct1[i], i)
 
     # Gene interaction CRX gates for ct1
     for i in range(ng_ct1):
@@ -66,9 +79,16 @@ def create_circuit_lr2(ansatz_grn_ct1, ansatz_grn_ct2, cell_type1='ct1', cell_ty
 
     # Gene activation probabilities (RZ rotations after Hadamard) for CT2
     params_act_ct2 = [Parameter(f'{cell_type2}_act_{i}') for i in range(ng_ct2)]
+    params_post_act_ct2 = [Parameter(f'{cell_type2}_post_acti_{i}') for i in range(ng_ct2)]
+    #params_post_act2_ct2 = [Parameter(f'{cell_type2}_post_acti2_{i}') for i in range(ng_ct2)]
     for i, j in enumerate(range(ng_ct1, num_features)):
-        ccgrn_circuit.h(j)
+        #ccgrn_circuit.h(j)
+        #ccgrn_circuit.ry(params_post_act_ct2[i], j)
+        #ccgrn_circuit.rx(params_post_act_ct2[i], j)
         ccgrn_circuit.rz(params_act_ct2[i], j)  # Corrected indexing here
+        #ccgrn_circuit.ry(params_post_act2_ct2[i], j)
+        #ccgrn_circuit.rx(params_post_act2_ct2[i], j)
+        #ccgrn_circuit.rz(params_post_act2_ct2[i], j)
 
     # Gene interaction CRX gates for ct2
     for i, q1 in enumerate(range(ng_ct1, num_features)):
@@ -115,9 +135,10 @@ def create_interaction_observable_from_histogram(joint_counts: Counter, num_feat
         if num_ones >= min_ones:  # Consider only if at least min_ones '1's are present
             nodes = tuple(i for i, bit in enumerate(bit_string) if bit == '1')
 
-            #strength = -float(count)
+            strength = -float(count)
+            #strength = count*(-1.0)**(num_ones+1) 
             #strength = float(count)
-            strength = count*(-1.0)**(num_ones+1) 
+            #strength = count*(-1.0)**(num_ones) 
 
             pauli_string = ""
             for i in range(num_features):
@@ -159,7 +180,6 @@ def create_interaction_observable_general(interactions, num_features):
 
 def evaluate_and_plot_ansatz(ansatz, params, shots=1024, title="Quantum Sampler Results"):
     """Evaluates a quantum ansatz, plots results and circuit, and prints counts."""
-
     try:
         sampler = StatevectorSampler()
         bound_circuit = ansatz.copy()
@@ -210,7 +230,30 @@ def create_parameter_dictionaries(combined_qc, ct1_percentages):
         static_params[params_ct[i]] = val
 
     variable_params = [param for param in combined_qc.parameters if param not in static_params]
+    x0_interaction = np.zeros(len(variable_params))  # All zeros
+    variable_params = dict(zip(variable_params, x0_interaction))
+
     return static_params, variable_params
+
+
+def create_parameter_dictionaries_cust(combined_qc, ct1_percentages):
+    """Creates static and variable parameter dictionaries."""
+    params_ct = [param for param in combined_qc.parameters if '_act_' in param.name]
+
+    static_params = {}
+    variable_params = [param for param in combined_qc.parameters if param not in static_params]
+
+    # Initialize variable parameters
+    #x0_interaction = np.zeros(len(variable_params))  # All zeros
+    x0_interaction = np.ones(len(variable_params))*np.pi  # All zeros
+    variable_params = dict(zip(variable_params, x0_interaction))
+
+    # Now, iterate through the identified 'act' parameters and assign their
+    for i, param in enumerate(params_ct):
+        variable_params[param] = ct1_percentages[i]
+
+    return static_params, variable_params
+
 
 def cost_func_vqe(params, combined_qc, hamiltonian, estimator):  # combined_qc here
     """Cost function for VQE"""
@@ -232,3 +275,144 @@ def create_parameter_dictionaries_from_circuit(circuit):
     static_params = {param: None for param in circuit.parameters if 'lr_' not in param.name}
     variable_params = {param: 0.0 for param in circuit.parameters if 'lr_' in param.name}
     return static_params, variable_params
+
+
+import numpy as np
+import matplotlib.pyplot as plt
+from qiskit.primitives import StatevectorEstimator
+from scipy.optimize import minimize
+def vqe_solver(
+    histogram_data,
+    circuit, # Renamed from 'cirquit' for common convention
+    ct1_percentages, # Renamed from 'act_percentages' for consistency with create_parameter_dictionaries_cust
+    cost_func_wrapper, # This function needs to be defined to accept the correct arguments (see comments below)
+    min_ones_for_observable=1, # Added as an explicit argument for flexibility
+    optimizer_method="L-BFGS-B"
+):
+    """
+    Performs a Variational Quantum Eigensolver (VQE) optimization.
+
+    This function encapsulates the VQE workflow, including:
+    1. Creating an interaction observable from histogram data.
+    2. Setting up static and variable parameters for the quantum circuit.
+    3. Initializing the Qiskit StatevectorEstimator.
+    4. Running the optimization using scipy.optimize.minimize.
+    5. Collecting cost function values during optimization.
+    6. Updating parameters with optimized values.
+    7. (Optional) Plotting the energy minimization curve.
+
+    Args:
+        histogram_data (dict): Data used to create the interaction observable.
+        circuit (QuantumCircuit): The parameterized quantum circuit (ansatz).
+        ct1_percentages (list): Initial percentage values for parameters
+                                containing '_act_' in the circuit.
+        cost_func_wrapper (callable): The cost function to be minimized.
+                                      It MUST accept arguments in the following order:
+                                      cost_func_wrapper(current_variable_params_array,
+                                                        static_params_dict,
+                                                        circuit,
+                                                        observable,
+                                                        estimator,
+                                                        variable_param_objects_list)
+                                      Inside this function, you should combine
+                                      static_params_dict and map current_variable_params_array
+                                      to variable_param_objects_list to form the
+                                      full parameter dictionary for circuit binding.
+        min_ones_for_observable (int): Minimum number of '1's for filtering
+                                       histogram data when creating the observable.
+        optimizer_method (str): The optimization method to use for scipy.minimize
+                                (e.g., "L-BFGS-B", "COBYLA", "SLSQP").
+
+    Returns:
+        tuple: A tuple containing:
+            - result_object (OptimizeResult): The result object from scipy.optimize.minimize.
+            - optimized_full_params (dict): The dictionary of all parameters
+                                            with their final optimized values.
+            - cost_history (list): A list of cost function values recorded
+                                   during each optimization iteration.
+    """
+
+    num_qubits = circuit.num_qubits # Get number of qubits from the circuit
+
+    # 1. Create interaction observable
+    interaction_observable = create_interaction_observable_from_histogram(
+        histogram_data, num_qubits, min_ones_for_observable
+    )
+    print("Interaction observable CT1 from histogram:", interaction_observable)
+
+    # 2. Create static and variable parameter dictionaries
+    # This uses the create_parameter_dictionaries_cust function from the immersive
+    # which sets static_params to empty and variable_params to all circuit parameters
+    # initialized to 0.0.
+    # Ensure you are using create_parameter_dictionaries_cust here, not create_parameter_dictionaries
+    static_params, variable_params_dict = create_parameter_dictionaries_cust(
+        circuit, ct1_percentages
+    )
+
+    print("Static Parameters:", static_params)
+    print("Variable Parameters (initialized to 0.0):", variable_params_dict)
+
+    # 3. Initialize Qiskit Estimator
+    estimator = StatevectorEstimator()
+
+    # 4. Prepare initial guess for optimization
+    # The 'variable_params_dict' contains parameter objects as keys and 0.0 as values.
+    # For scipy.minimize, we need an array of initial values (x0).
+    # We extract the initial values from variable_params_dict to form x0.
+    x0_interaction = np.array(list(variable_params_dict.values()))
+
+    # To correctly map back optimized values, we also need a list of the parameter objects
+    # that correspond to the order of values in x0_interaction.
+    variable_param_objects = list(variable_params_dict.keys())
+
+
+    # 5. Create initial full parameter dictionary (this is mainly for initial print and structure)
+    # The actual 'all_params' for binding will be constructed inside cost_func_wrapper.
+    initial_all_params_for_display = static_params.copy()
+    initial_all_params_for_display.update(dict(zip(variable_param_objects, x0_interaction)))
+
+
+    cost_values = [] # List to store cost values at each iteration
+
+    # Define the callback function for minimize
+    # The callback receives only `xk` (the current optimized parameters array).
+    # It needs to reconstruct the full parameter dictionary to call `cost_func_wrapper`.
+    def callback_func(xk):
+        # Call the cost function with the current variable parameters (xk)
+        # and the fixed arguments. The cost_func_wrapper itself is responsible
+        # for combining xk with static_params to form the full parameter set.
+        current_cost = cost_func_wrapper(xk, static_params, circuit, interaction_observable, estimator, variable_param_objects)
+        cost_values.append(current_cost)
+        print(f"Current cost: {current_cost}") # Optional: print current cost during optimization
+
+    # 6. Call minimize with args
+    print(f"Starting optimization with method: {optimizer_method}")
+    result_interaction_bfgs = minimize(
+        cost_func_wrapper,
+        x0_interaction,
+        # IMPORTANT: Pass static_params and variable_param_objects as fixed arguments
+        # The cost_func_wrapper will use xk (the first argument) with these to bind parameters.
+        args=(static_params, circuit, interaction_observable, estimator, variable_param_objects),
+        method=optimizer_method, # Use the passed optimizer_method
+        callback=callback_func # Use the defined callback function
+    )
+
+    print("\nOptimization Result:")
+    print(result_interaction_bfgs)
+
+    # 7. Update the full parameter dictionary with optimized variable parameters
+    optimized_variable_parameters = result_interaction_bfgs.x
+
+    # Construct the final optimized full parameter dictionary
+    optimized_full_params = static_params.copy()
+    for param_obj, value in zip(variable_param_objects, optimized_variable_parameters):
+        optimized_full_params[param_obj] = value
+
+    print("\nOptimized Full Parameters:")
+    # Print optimized parameters by name for readability
+    for param, value in optimized_full_params.items():
+        print(f"  {param.name}: {value}")
+
+
+    # Return the results
+    return result_interaction_bfgs, optimized_full_params, cost_values
