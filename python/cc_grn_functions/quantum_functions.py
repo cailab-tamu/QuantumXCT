@@ -27,12 +27,19 @@ def create_grn_ansatz(ng, cell_type):
     params_post_act2 = [Parameter(f'{cell_type}_post_acti2_{i}') for i in range(ng)]
     for i in range(ng):
         ansatz_grn.h(i)
+        #ansatz_grn.h(i)
         #ansatz_grn.ry(params_post_act[i], i)
         #ansatz_grn.rx(params_post_act[i], i)
+        #ansatz_grn.rz(params_post_act[i], i)
+        #ansatz_grn.h(i)
+        #ansatz_grn.h(i)
         ansatz_grn.rz(params_act[i], i)  # Use RZ for activation
+        #ansatz_grn.h(i)
+        #ansatz_grn.h(i)
         #ansatz_grn.ry(params_post_act2[i], i)
         #ansatz_grn.rx(params_post_act2[i], i)
         #ansatz_grn.rz(params_post_act2[i], i)
+        #ansatz_grn.h(i)
 
     # Gene interaction CRX gates
     for i in range(ng):
@@ -40,9 +47,11 @@ def create_grn_ansatz(ng, cell_type):
             if i != j:
                 param_name = f'{cell_type}_grn_{i}_{j}'
                 param = Parameter(param_name)
+                #ansatz_grn.h(j)
                 ansatz_grn.cry(param, i, j)
                 #ansatz_grn.crx(param, i, j)
-
+                #ansatz_grn.crz(param, i, j)
+                #ansatz_grn.h(j)
 
     return ansatz_grn
 
@@ -111,47 +120,101 @@ def create_circuit_lr2(ansatz_grn_ct1, ansatz_grn_ct2, cell_type1='ct1', cell_ty
 
     return ccgrn_circuit
 
-def create_interaction_observable_from_histogram(joint_counts: Counter, num_features: int, min_ones: int = 1, rm_all_ones: bool=False):
+# def create_interaction_observable_from_histogram(joint_counts: Counter, num_features: int, min_ones: int = 1, rm_all_ones: bool=False):
+#     """Creates a SparsePauliOp from joint histogram counts,
+#         favoring bit strings with odd number of '1's.
+
+#     Args:
+#         joint_counts: A Counter object from create_joint_histogram.
+#         num_features: The total number of qubits.
+#         min_ones: The minimum number of '1's required in a bit string
+#                   for the interaction to be included.
+#         rm_all_ones: If True, removes the bit string with all '1's.
+#     Returns:
+#         A SparsePauliOp observable.
+#     """
+#     interaction_strength_list = []
+
+#     for bit_string, count in joint_counts.items():
+#         num_ones = bit_string.count('1')  # Count the number of '1's
+
+#         if num_ones == num_features and rm_all_ones:
+#             continue
+
+#         if num_ones >= min_ones:  # Consider only if at least min_ones '1's are present
+#             nodes = tuple(i for i, bit in enumerate(bit_string) if bit == '1')
+
+#             strength = -float(count)
+#             #strength = count*(-1.0)**(num_ones+1) 
+#             #strength = float(count)
+#             #strength = count*(-1.0)**(num_ones) 
+
+#             pauli_string = ""
+#             for i in range(num_features):
+#                 if i in nodes:
+#                     pauli_string += "Z"
+#                 else:
+#                     pauli_string += "I"
+
+#             interaction_strength_list.append((pauli_string, strength))
+
+#     interaction_observable = SparsePauliOp.from_list(interaction_strength_list)
+#     return interaction_observable
+
+from qiskit.quantum_info import SparsePauliOp
+from collections import Counter
+import itertools # While not strictly used in the current binary string generation, kept for consistency if other methods are considered.
+def create_interaction_observable_from_histogram(joint_counts: Counter, num_features: int, min_ones: int = 0):
     """Creates a SparsePauliOp from joint histogram counts,
         favoring bit strings with odd number of '1's.
+        It now includes all possible bit strings, assigning a positive
+        strength to those not observed in the histogram (punishment).
 
     Args:
         joint_counts: A Counter object from create_joint_histogram.
         num_features: The total number of qubits.
         min_ones: The minimum number of '1's required in a bit string
                   for the interaction to be included.
-        rm_all_ones: If True, removes the bit string with all '1's.
     Returns:
         A SparsePauliOp observable.
     """
     interaction_strength_list = []
+    
+    # Convert observed bit strings to a set for efficient lookup
+    observed_bit_strings = set(joint_counts.keys())
 
-    for bit_string, count in joint_counts.items():
+    # Generate all possible bit strings for num_features
+    # This iterates through numbers from 0 to 2^num_features - 1
+    for i in range(2**num_features):
+        # Convert integer to binary string, padded with leading zeros
+        bit_string = format(i, '0' + str(num_features) + 'b')
         num_ones = bit_string.count('1')  # Count the number of '1's
 
-        if num_ones == num_features and rm_all_ones:
-            continue
+        # Apply the 'min_ones' criteria
+        if num_ones < min_ones:
+            continue # Skip if it doesn't meet the minimum '1's requirement
 
-        if num_ones >= min_ones:  # Consider only if at least min_ones '1's are present
-            nodes = tuple(i for i, bit in enumerate(bit_string) if bit == '1')
+        # Determine the strength based on whether the bit string was observed
+        if bit_string in observed_bit_strings:
+            # If observed, use the negative of its count
+            strength = -float(joint_counts[bit_string])
+        else:
+            # If not observed, assign a positive punishment value (e.g., 10.0)
+            strength = 1.0 # This is the "punishment" value for non-observed states
 
-            strength = -float(count)
-            #strength = count*(-1.0)**(num_ones+1) 
-            #strength = float(count)
-            #strength = count*(-1.0)**(num_ones) 
+        # Construct the Pauli string for the current bit_string
+        pauli_string = ""
+        for j in range(num_features):
+            if bit_string[j] == '1': # If the qubit is '1' in the bit string
+                pauli_string += "Z"  # Apply Z gate
+            else:
+                pauli_string += "I"  # Apply Identity (do nothing)
 
-            pauli_string = ""
-            for i in range(num_features):
-                if i in nodes:
-                    pauli_string += "Z"
-                else:
-                    pauli_string += "I"
+        interaction_strength_list.append((pauli_string, strength))
 
-            interaction_strength_list.append((pauli_string, strength))
-
+    # Create the SparsePauliOp from the list of (Pauli string, strength) tuples
     interaction_observable = SparsePauliOp.from_list(interaction_strength_list)
     return interaction_observable
-
 
 def create_interaction_observable_general(interactions, num_features):
     """Creates a SparsePauliOp observable for generalized interactions.
@@ -254,6 +317,12 @@ def create_parameter_dictionaries_cust(combined_qc, ct1_percentages):
 
     return static_params, variable_params
 
+# Create the static and variable parameter dictionaries directly from the circuit.
+def create_parameter_dictionaries_from_circuit(circuit):
+    """Creates static and variable parameter dictionaries directly from the circuit."""
+    static_params = {param: None for param in circuit.parameters if 'lr_' not in param.name}
+    variable_params = {param: 0.0 for param in circuit.parameters if 'lr_' in param.name}
+    return static_params, variable_params
 
 def cost_func_vqe(params, combined_qc, hamiltonian, estimator):  # combined_qc here
     """Cost function for VQE"""
@@ -269,14 +338,6 @@ def cost_func_wrapper(variable_values, all_params, combined_qc, interaction_obse
         all_params[param] = variable_values[i]
     return cost_func_vqe(all_params, combined_qc, interaction_observable, estimator) # Pass combined_qc
 
-# Create the static and variable parameter dictionaries directly from the circuit.
-def create_parameter_dictionaries_from_circuit(circuit):
-    """Creates static and variable parameter dictionaries directly from the circuit."""
-    static_params = {param: None for param in circuit.parameters if 'lr_' not in param.name}
-    variable_params = {param: 0.0 for param in circuit.parameters if 'lr_' in param.name}
-    return static_params, variable_params
-
-
 import numpy as np
 import matplotlib.pyplot as plt
 from qiskit.primitives import StatevectorEstimator
@@ -286,7 +347,7 @@ def vqe_solver(
     circuit, # Renamed from 'cirquit' for common convention
     ct1_percentages, # Renamed from 'act_percentages' for consistency with create_parameter_dictionaries_cust
     cost_func_wrapper, # This function needs to be defined to accept the correct arguments (see comments below)
-    min_ones_for_observable=1, # Added as an explicit argument for flexibility
+    min_ones_obs=1, # Added as an explicit argument for flexibility
     optimizer_method="L-BFGS-B"
 ):
     """
@@ -336,7 +397,7 @@ def vqe_solver(
 
     # 1. Create interaction observable
     interaction_observable = create_interaction_observable_from_histogram(
-        histogram_data, num_qubits, min_ones_for_observable
+        histogram_data, num_qubits, min_ones_obs
     )
     print("Interaction observable CT1 from histogram:", interaction_observable)
 
@@ -372,22 +433,30 @@ def vqe_solver(
     initial_all_params_for_display.update(dict(zip(variable_param_objects, x0_interaction)))
 
 
+    # in the context of the vqe_solver function scope.
+    iteration_data = {'counter': 0} 
     cost_values = [] # List to store cost values at each iteration
-
     # Define the callback function for minimize
-    # The callback receives only `xk` (the current optimized parameters array).
-    # It needs to reconstruct the full parameter dictionary to call `cost_func_wrapper`.
     def callback_func(xk):
-        # Call the cost function with the current variable parameters (xk)
-        # and the fixed arguments. The cost_func_wrapper itself is responsible
-        # for combining xk with static_params to form the full parameter set.
+        # Access the counter from the enclosing scope's dictionary
+        current_counter = iteration_data['counter']
+        if current_counter > 100:
+            print_criteria = 100
+        else:
+            print_criteria = 20
+
         current_cost = cost_func_wrapper(xk, static_params, circuit, interaction_observable, estimator, variable_param_objects)
         cost_values.append(current_cost)
-        print(f"Current cost: {current_cost}") # Optional: print current cost during optimization
+
+        # Print the current cost only every 20 iterations
+        if current_counter % print_criteria == 0:
+            print(f"Iteration {current_counter}: Current cost: {current_cost}")
+            
+        iteration_data['counter'] += 1 # Increment the counter
 
     # 6. Call minimize with args
     print(f"Starting optimization with method: {optimizer_method}")
-    result_interaction_bfgs = minimize(
+    result_interaction = minimize(
         cost_func_wrapper,
         x0_interaction,
         # IMPORTANT: Pass static_params and variable_param_objects as fixed arguments
@@ -395,13 +464,15 @@ def vqe_solver(
         args=(static_params, circuit, interaction_observable, estimator, variable_param_objects),
         method=optimizer_method, # Use the passed optimizer_method
         callback=callback_func # Use the defined callback function
+        #tol= 1e-5,
     )
 
     print("\nOptimization Result:")
-    print(result_interaction_bfgs)
+    print(result_interaction)
+    print(f"\nFinal Energy: {result_interaction.fun}")
 
     # 7. Update the full parameter dictionary with optimized variable parameters
-    optimized_variable_parameters = result_interaction_bfgs.x
+    optimized_variable_parameters = result_interaction.x
 
     # Construct the final optimized full parameter dictionary
     optimized_full_params = static_params.copy()
@@ -415,4 +486,4 @@ def vqe_solver(
 
 
     # Return the results
-    return result_interaction_bfgs, optimized_full_params, cost_values
+    return result_interaction, optimized_full_params, cost_values
