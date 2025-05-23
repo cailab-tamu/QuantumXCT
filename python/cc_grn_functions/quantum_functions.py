@@ -28,7 +28,7 @@ def create_grn_ansatz(ng, cell_type):
     for i in range(ng):
         ansatz_grn.h(i)
         #ansatz_grn.h(i)
-        #ansatz_grn.ry(params_post_act[i], i)
+        ansatz_grn.ry(params_post_act[i], i)
         #ansatz_grn.rx(params_post_act[i], i)
         #ansatz_grn.rz(params_post_act[i], i)
         #ansatz_grn.h(i)
@@ -70,7 +70,7 @@ def create_circuit_lr2(ansatz_grn_ct1, ansatz_grn_ct2, cell_type1='ct1', cell_ty
     params_post_act2_ct1 = [Parameter(f'{cell_type1}_post_acti2_{i}') for i in range(ng_ct1)]
     for i in range(ng_ct1):
         #ccgrn_circuit.h(i)
-        #ccgrn_circuit.ry(params_post_act_ct1[i], i)
+        ccgrn_circuit.ry(params_post_act_ct1[i], i)
         #ccgrn_circuit.rx(params_post_act_ct1[i], i)
         ccgrn_circuit.rz(params_act_ct1[i], i)
         #ccgrn_circuit.ry(params_post_act2_ct1[i], i)
@@ -92,7 +92,7 @@ def create_circuit_lr2(ansatz_grn_ct1, ansatz_grn_ct2, cell_type1='ct1', cell_ty
     #params_post_act2_ct2 = [Parameter(f'{cell_type2}_post_acti2_{i}') for i in range(ng_ct2)]
     for i, j in enumerate(range(ng_ct1, num_features)):
         #ccgrn_circuit.h(j)
-        #ccgrn_circuit.ry(params_post_act_ct2[i], j)
+        ccgrn_circuit.ry(params_post_act_ct2[i], j)
         #ccgrn_circuit.rx(params_post_act_ct2[i], j)
         ccgrn_circuit.rz(params_act_ct2[i], j)  # Corrected indexing here
         #ccgrn_circuit.ry(params_post_act2_ct2[i], j)
@@ -161,60 +161,148 @@ def create_circuit_lr2(ansatz_grn_ct1, ansatz_grn_ct2, cell_type1='ct1', cell_ty
 #     interaction_observable = SparsePauliOp.from_list(interaction_strength_list)
 #     return interaction_observable
 
+
+
 from qiskit.quantum_info import SparsePauliOp
 from collections import Counter
-import itertools # While not strictly used in the current binary string generation, kept for consistency if other methods are considered.
-def create_interaction_observable_from_histogram(joint_counts: Counter, num_features: int, min_ones: int = 0):
-    """Creates a SparsePauliOp from joint histogram counts,
-        favoring bit strings with odd number of '1's.
-        It now includes all possible bit strings, assigning a positive
-        strength to those not observed in the histogram (punishment).
+import itertools # Used for generating all Pauli string combinations
+import numpy as np # For numerical precision and calculations
+
+# --- NEW HELPER FUNCTION (placed inside for self-containment, or can be external) ---
+def _calculate_pauli_z_eigenvalue_for_basis_state(pauli_string_z_only: str, bit_string: str) -> int:
+    """
+    Calculates the eigenvalue of a Pauli string (composed ONLY of Z and I)
+    for a given computational basis bit string.
+    
+    Assumes pauli_string_z_only and bit_string are both ordered from MSB to LSB
+    (e.g., "ZIZ" where Z is for q2, I for q1, Z for q0, and "011" where 0 is for q2, 1 for q1, 1 for q0).
+    """
+    if len(pauli_string_z_only) != len(bit_string):
+        raise ValueError("Pauli string length must match bit string length.")
+
+    eigenvalue = 1
+    # Iterate from MSB (index 0) to LSB (index num_features-1)
+    for i in range(len(pauli_string_z_only)):
+        pauli_op = pauli_string_z_only[i].upper() # Pauli op at this qubit position
+        bit_val = int(bit_string[i]) # Bit value at this qubit position
+
+        if pauli_op == 'Z':
+            eigenvalue *= (1 - 2 * bit_val) # (+1 if bit is 0, -1 if bit is 1)
+        # For 'I', eigenvalue *= 1, so no change needed
+            
+    return eigenvalue
+
+
+# --- MODIFIED create_interaction_observable_from_histogram ---
+def create_interaction_observable_from_histogram(
+    joint_counts: Counter,
+    num_features: int,
+    min_ones: int = 0, # Kept as per your original signature
+    # Added new parameters for fine-grained control over energy assignment
+    unobserved_punishment: float = 10.0,
+    normalization_offset: float = 0.0
+) -> SparsePauliOp:
+    """Creates a SparsePauliOp representing a diagonal Hamiltonian in the computational basis.
+       The energy of each basis state is derived from its count in the histogram,
+       favoring states that meet `min_ones` and are observed, and punishing others.
 
     Args:
-        joint_counts: A Counter object from create_joint_histogram.
+        joint_counts: A Counter object of observed bit string counts.
         num_features: The total number of qubits.
-        min_ones: The minimum number of '1's required in a bit string
-                  for the interaction to be included.
+        min_ones: The minimum number of '1's required in a bit string for it to be
+                  considered 'favorable' if observed. States not meeting this or unobserved
+                  will be assigned `unobserved_punishment` energy.
+        unobserved_punishment: The positive energy value assigned to unobserved bit strings,
+                               or observed bit strings that don't meet `min_ones` criteria.
+                               These states will be 'punished' (avoided by optimizer).
+        normalization_offset: An optional offset to subtract from counts before calculating energy.
+                              Useful for centering counts, e.g., for 50/50 cases.
+
+    Returns:
+        A SparsePauliOp observable.
+    """
+    
+    # 1. Determine the desired energy (E_b) for *each* computational basis state |b>
+    # This replaces the old `strength` determination logic.
+    state_energies = {} # Maps bit_string -> desired_energy (e.g., "011" -> -500)
+    
+    # Iterate through all possible bit strings (2^num_features)
+    for i in range(2**num_features):
+        bit_string = format(i, '0' + str(num_features) + 'b') # Generates MSB...LSB (q_N-1 ... q_0)
+        num_ones = bit_string.count('1') # Count '1's for `min_ones` criteria
+
+        if num_ones < min_ones:
+            # If it doesn't meet min_ones, treat as undesirable, assign punishment
+            energy_b = unobserved_punishment
+        elif bit_string in joint_counts:
+            # If observed AND meets min_ones: energy proportional to -count
+            energy_b = -float(joint_counts[bit_string] - normalization_offset)
+        else:
+            # If unobserved (but meets min_ones, or min_ones=0): assign punishment
+            energy_b = unobserved_punishment
+        
+        state_energies[bit_string] = energy_b
+
+    # 2. Generate all possible Z-only Pauli strings (e.g., I, Z, II, IZ, ZI, ZZ for 2 qubits)
+    # in MSB to LSB order (Q_{N-1}...Q_0) for consistency with Qiskit Pauli string order.
+    all_pauli_z_strings = []
+    for pauli_tuple in itertools.product('IZ', repeat=num_features):
+        pauli_string = "".join(pauli_tuple)
+        all_pauli_z_strings.append(pauli_string)
+    
+    # 3. Convert these state_energies (E_b) into coefficients (c_P) for Pauli strings
+    # This loop replaces your original `for i in range(2**num_features)` and `pauli_string` construction.
+    pauli_term_coefficients = {}
+
+    for pauli_str in all_pauli_z_strings: # Iterate through all canonical Pauli-Z strings
+        coeff_p = 0.0
+        # Sum over all basis states 'b' (all 2^N bit strings)
+        for bit_string, energy_b in state_energies.items():
+            # Get eigenvalue of Pauli string P for basis state |b>
+            # <--- CHANGE THIS LINE HERE --- >
+            eigenvalue_p_b = _calculate_pauli_z_eigenvalue_for_basis_state(pauli_str, bit_string) 
+            coeff_p += energy_b * eigenvalue_p_b
+        
+        # Normalize by 2^N
+        coeff_p /= (2**num_features)
+        
+        if abs(coeff_p) > 1e-9: # Add term only if coefficient is significant
+            pauli_term_coefficients[pauli_str] = coeff_p
+
+    # Convert to SparsePauliOp format
+    interaction_strength_list = [(pauli_str, coeff) for pauli_str, coeff in pauli_term_coefficients.items()]
+    interaction_observable = SparsePauliOp.from_list(interaction_strength_list)
+    return interaction_observable
+
+# You also provided the create_interaction_observable_general function, which is separate
+# and was not part of the problem. Keeping it as is.
+def create_interaction_observable_general(interactions, num_features):
+    """Creates a SparsePauliOp observable for generalized interactions.
+    Args:
+        interactions: A dictionary where keys are tuples of node indices 
+                      (e.g., (0, 1), (0, 0, 2), (0, 1, 2, 3)) and 
+                      values are the corresponding interaction strengths.
+        num_features: The total number of qubits.
+
     Returns:
         A SparsePauliOp observable.
     """
     interaction_strength_list = []
-    
-    # Convert observed bit strings to a set for efficient lookup
-    observed_bit_strings = set(joint_counts.keys())
-
-    # Generate all possible bit strings for num_features
-    # This iterates through numbers from 0 to 2^num_features - 1
-    for i in range(2**num_features):
-        # Convert integer to binary string, padded with leading zeros
-        bit_string = format(i, '0' + str(num_features) + 'b')
-        num_ones = bit_string.count('1')  # Count the number of '1's
-
-        # Apply the 'min_ones' criteria
-        if num_ones < min_ones:
-            continue # Skip if it doesn't meet the minimum '1's requirement
-
-        # Determine the strength based on whether the bit string was observed
-        if bit_string in observed_bit_strings:
-            # If observed, use the negative of its count
-            strength = -float(joint_counts[bit_string])
-        else:
-            # If not observed, assign a positive punishment value (e.g., 10.0)
-            strength = 1.0 # This is the "punishment" value for non-observed states
-
-        # Construct the Pauli string for the current bit_string
+    for nodes, strength in interactions.items():
+        strength = -strength # Assuming you want to minimize this energy
         pauli_string = ""
-        for j in range(num_features):
-            if bit_string[j] == '1': # If the qubit is '1' in the bit string
-                pauli_string += "Z"  # Apply Z gate
+        for i in range(num_features):
+            if i in nodes:  # Check if the current qubit is in the interaction
+                pauli_string += "Z"
             else:
-                pauli_string += "I"  # Apply Identity (do nothing)
-
+                pauli_string += "I"
         interaction_strength_list.append((pauli_string, strength))
 
-    # Create the SparsePauliOp from the list of (Pauli string, strength) tuples
     interaction_observable = SparsePauliOp.from_list(interaction_strength_list)
     return interaction_observable
+
+
+
 
 def create_interaction_observable_general(interactions, num_features):
     """Creates a SparsePauliOp observable for generalized interactions.
@@ -240,6 +328,9 @@ def create_interaction_observable_general(interactions, num_features):
 
     interaction_observable = SparsePauliOp.from_list(interaction_strength_list)
     return interaction_observable
+
+
+
 
 def evaluate_and_plot_ansatz(ansatz, params, shots=1024, title="Quantum Sampler Results"):
     """Evaluates a quantum ansatz, plots results and circuit, and prints counts."""
@@ -308,7 +399,7 @@ def create_parameter_dictionaries_cust(combined_qc, ct1_percentages):
 
     # Initialize variable parameters
     #x0_interaction = np.zeros(len(variable_params))  # All zeros
-    x0_interaction = np.ones(len(variable_params))*np.pi  # All zeros
+    x0_interaction = np.ones(len(variable_params))*np.pi*0  # All zeros
     variable_params = dict(zip(variable_params, x0_interaction))
 
     # Now, iterate through the identified 'act' parameters and assign their
