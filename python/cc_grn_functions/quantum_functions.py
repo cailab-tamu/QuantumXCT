@@ -27,19 +27,13 @@ def create_grn_ansatz(ng, cell_type):
     params_post_act2 = [Parameter(f'{cell_type}_post_acti2_{i}') for i in range(ng)]
     for i in range(ng):
         ansatz_grn.h(i)
-        #ansatz_grn.h(i)
         ansatz_grn.ry(params_post_act[i], i)
         #ansatz_grn.rx(params_post_act[i], i)
         #ansatz_grn.rz(params_post_act[i], i)
-        #ansatz_grn.h(i)
-        #ansatz_grn.h(i)
         ansatz_grn.rz(params_act[i], i)  # Use RZ for activation
-        #ansatz_grn.h(i)
-        #ansatz_grn.h(i)
         #ansatz_grn.ry(params_post_act2[i], i)
-        #ansatz_grn.rx(params_post_act2[i], i)
+        ansatz_grn.rx(params_post_act2[i], i)
         #ansatz_grn.rz(params_post_act2[i], i)
-        #ansatz_grn.h(i)
 
     # Gene interaction CRX gates
     for i in range(ng):
@@ -47,11 +41,8 @@ def create_grn_ansatz(ng, cell_type):
             if i != j:
                 param_name = f'{cell_type}_grn_{i}_{j}'
                 param = Parameter(param_name)
-                #ansatz_grn.h(j)
                 ansatz_grn.cry(param, i, j)
                 #ansatz_grn.crx(param, i, j)
-                #ansatz_grn.crz(param, i, j)
-                #ansatz_grn.h(j)
 
     return ansatz_grn
 
@@ -497,9 +488,12 @@ def vqe_solver(
     # which sets static_params to empty and variable_params to all circuit parameters
     # initialized to 0.0.
     # Ensure you are using create_parameter_dictionaries_cust here, not create_parameter_dictionaries
-    static_params, variable_params_dict = create_parameter_dictionaries_cust(
-        circuit, ct1_percentages
-    )
+    # static_params, variable_params_dict = create_parameter_dictionaries_cust(
+    #     circuit, ct1_percentages
+    # )
+    static_params, variable_params_dict = create_parameter_dictionaries(circuit, ct1_percentages) 
+
+
 
     print("Static Parameters:", static_params)
     print("Variable Parameters (initialized to 0.0):", variable_params_dict)
