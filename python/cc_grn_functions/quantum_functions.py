@@ -27,18 +27,13 @@ def create_grn_ansatz(ng, cell_type):
     params_post_act2 = [Parameter(f'{cell_type}_post_acti2_{i}') for i in range(ng)]
     for i in range(ng):
         ansatz_grn.h(i)
-        #ansatz_grn.ry(params_post_act[i], i)
-        #ansatz_grn.rx(params_post_act[i], i)
-        #ansatz_grn.rz(params_post_act[i], i)
-        #ansatz_grn.rz(params_act[i], i)  # Use RZ for activation
-        #ansatz_grn.ry(params_post_act2[i], i)
-        #ansatz_grn.rx(params_post_act2[i], i)
-        #ansatz_grn.rz(params_post_act2[i], i)
-        #ansatz_grn.u(params_post_act[i], params_post_act2[i], params_act[i], i)   
-        ansatz_grn.u(params_post_act[i], params_act[i], params_post_act2[i], i)   
+        #ansatz_grn.u(params_act[i], params_post_act[i], params_post_act2[i], i)  
+        ansatz_grn.u(params_post_act[i], params_act[i], params_post_act2[i], i)  
+        #ansatz_grn.u(params_post_act[i], params_post_act2[i], params_act[i], i) # Not working
         ansatz_grn.x(i)
-        ansatz_grn.u(params_post_act[i], params_act[i], params_post_act2[i], i)   
-
+        #ansatz_grn.u(params_act[i], params_post_act[i],  params_post_act2[i], i)  
+        ansatz_grn.u(params_post_act[i], params_act[i], params_post_act2[i], i)  
+        #ansatz_grn.u(params_post_act[i], params_post_act2[i], params_act[i], i) # Not working
 
     # Gene interaction CRX gates
     for i in range(ng):
@@ -51,112 +46,73 @@ def create_grn_ansatz(ng, cell_type):
 
     return ansatz_grn
 
-def create_circuit_lr2(ansatz_grn_ct1, ansatz_grn_ct2, cell_type1='ct1', cell_type2='ct2', interactions=None):
-    """Concatenates two circuits and includes interactions using CRY rotations with parameterized angles."""
+
+def create_joint_circuit_from_ansatzes(ansatz_grn_ct1, ansatz_grn_ct2, interactions=None):
+    """
+    Concatenates two GRN ansatz circuits, preserving their internal structure and parameter names,
+    and includes additional inter-cell-type interactions using Controlled-RX rotations with parameterized angles.
+
+    This function directly appends the instructions from the input ansatz circuits,
+    avoiding the need to redefine gates and parameters.
+
+    Args:
+        ansatz_grn_ct1 (QuantumCircuit): The GRN ansatz circuit for cell type 1.
+        ansatz_grn_ct2 (QuantumCircuit): The GRN ansatz circuit for cell type 2.
+        interactions (dict, optional): A dictionary where keys are tuples (q1, q2) representing
+                                      qubit pairs for inter-cell-type interactions. These interactions
+                                      are typically between a qubit from ansatz_grn_ct1 and a qubit
+                                      from ansatz_grn_ct2. The values can be arbitrary (e.g., placeholder).
+                                      Defaults to None.
+
+    Returns:
+        QuantumCircuit: A new QuantumCircuit object representing the combined GRN ansatz
+                        with inter-cell-type interactions.
+    """
     ng_ct1 = ansatz_grn_ct1.num_qubits
     ng_ct2 = ansatz_grn_ct2.num_qubits
-    cell_type1 = cell_type1.lower()
-    cell_type2 = cell_type2.lower()
-    num_features = ng_ct1 + ng_ct2
-    ccgrn_circuit = QuantumCircuit(num_features, name=f"CC_GRN_Ansatz")
+    num_total_qubits = ng_ct1 + ng_ct2
+    
+    # Create a new quantum circuit for the combined ansatz with the total number of qubits
+    ccgrn_circuit = QuantumCircuit(num_total_qubits, name="Combined_GRN_Ansatz")
 
-    # Gene activation probabilities (RZ rotations after Hadamard) for CT1
-    params_act_ct1 = [Parameter(f'{cell_type1}_act_{i}') for i in range(ng_ct1)]
-    params_post_act_ct1 = [Parameter(f'{cell_type1}_post_acti_{i}') for i in range(ng_ct1)]
-    params_post_act2_ct1 = [Parameter(f'{cell_type1}_post_acti2_{i}') for i in range(ng_ct1)]
-    for i in range(ng_ct1):
-        #ccgrn_circuit.h(i)
-        ccgrn_circuit.ry(params_post_act_ct1[i], i)
-        #ccgrn_circuit.rx(params_post_act_ct1[i], i)
-        ccgrn_circuit.rz(params_act_ct1[i], i)
-        #ccgrn_circuit.ry(params_post_act2_ct1[i], i)
-        #ccgrn_circuit.rx(params_post_act2_ct1[i], i)
-        #ccgrn_circuit.rz(params_post_act2_ct1[i], i)
+    # Append the first cell type's ansatz directly.
+    # The 'compose' method appends the instructions of ansatz_grn_ct1 to ccgrn_circuit.
+    # The 'qubits=range(ng_ct1)' argument ensures these instructions operate on the
+    # first 'ng_ct1' qubits (0 to ng_ct1-1) of the combined circuit.
+    # 'inplace=True' modifies ccgrn_circuit directly.
+    ccgrn_circuit.compose(ansatz_grn_ct1, qubits=range(ng_ct1), inplace=True)
 
-    # Gene interaction CRX gates for ct1
-    for i in range(ng_ct1):
-        for j in range(ng_ct1):
-            if i != j:
-                param_name = f'{cell_type1}_grn_{i}_{j}'
-                param = Parameter(param_name)
-                ccgrn_circuit.cry(param, i, j)
-                #ccgrn_circuit.crx(param, i, j)
+    # Append the second cell type's ansatz, shifting its qubits.
+    # The qubits of ansatz_grn_ct2 (which are internally 0 to ng_ct2-1) will now map to
+    # qubits from 'ng_ct1' to '(ng_ct1 + ng_ct2 - 1)' in the combined circuit.
+    ccgrn_circuit.compose(ansatz_grn_ct2, qubits=range(ng_ct1, num_total_qubits), inplace=True)
 
-    # Gene activation probabilities (RZ rotations after Hadamard) for CT2
-    params_act_ct2 = [Parameter(f'{cell_type2}_act_{i}') for i in range(ng_ct2)]
-    params_post_act_ct2 = [Parameter(f'{cell_type2}_post_acti_{i}') for i in range(ng_ct2)]
-    #params_post_act2_ct2 = [Parameter(f'{cell_type2}_post_acti2_{i}') for i in range(ng_ct2)]
-    for i, j in enumerate(range(ng_ct1, num_features)):
-        #ccgrn_circuit.h(j)
-        ccgrn_circuit.ry(params_post_act_ct2[i], j)
-        #ccgrn_circuit.rx(params_post_act_ct2[i], j)
-        ccgrn_circuit.rz(params_act_ct2[i], j)  # Corrected indexing here
-        #ccgrn_circuit.ry(params_post_act2_ct2[i], j)
-        #ccgrn_circuit.rx(params_post_act2_ct2[i], j)
-        #ccgrn_circuit.rz(params_post_act2_ct2[i], j)
-
-    # Gene interaction CRX gates for ct2
-    for i, q1 in enumerate(range(ng_ct1, num_features)):
-        for j, q2 in enumerate(range(ng_ct1, num_features)):
-            if q1 != q2:
-                param_name = f'{cell_type2}_grn_{i}_{j}'
-                param = Parameter(param_name)
-                ccgrn_circuit.cry(param, q1, q2)
-                #ccgrn_circuit.crx(param, q1, q2)
-
-    # Add interactions if provided LR info here
+    # Add inter-cell-type interactions if provided
     if interactions:
         for (q1, q2) in interactions.keys():
-            if not (0 <= q1 < num_features and 0 <= q2 < num_features):
-                raise ValueError("Qubit indices in interactions are out of range.")
-            param_name = f"lr_{q1}_{q2}"
+            # Validate qubit indices to ensure they are within the bounds of the combined circuit
+            if not (0 <= q1 < num_total_qubits and 0 <= q2 < num_total_qubits):
+                raise ValueError(f"Qubit indices ({q1}, {q2}) in interactions are out of range for {num_total_qubits} total qubits.")
+            
+            # Check if the interaction is indeed between qubits from different cell types.
+            # This is a common use case for the 'interactions' parameter.
+            is_q1_from_ct1 = q1 < ng_ct1
+            is_q2_from_ct1 = q2 < ng_ct1
+            
+            if is_q1_from_ct1 == is_q2_from_ct1: # If both qubits are from the same cell type
+                print(f"Warning: Interaction between qubits ({q1}, {q2}) appears to be within the same cell type. "
+                      "Typically, 'interactions' are for inter-cell-type connections. Skipping this interaction.")
+                continue # Skip this interaction as it's not an inter-cell interaction
+
+            # Create a new parameter for the ligand-receptor (inter-cell) interaction angle
+            param_name = f"lr_{q1}_{q2}" # Parameter name for ligand-receptor interaction
             angle_param = Parameter(param_name)
+            
+            # Apply a Controlled-RX gate for inter-cell interaction.
+            # The control qubit is q1, and the target qubit is q2.
             ccgrn_circuit.crx(angle_param, q1, q2)
-            #ccgrn_circuit.cry(angle_param, q1, q2)
 
     return ccgrn_circuit
-
-# def create_interaction_observable_from_histogram(joint_counts: Counter, num_features: int, min_ones: int = 1, rm_all_ones: bool=False):
-#     """Creates a SparsePauliOp from joint histogram counts,
-#         favoring bit strings with odd number of '1's.
-
-#     Args:
-#         joint_counts: A Counter object from create_joint_histogram.
-#         num_features: The total number of qubits.
-#         min_ones: The minimum number of '1's required in a bit string
-#                   for the interaction to be included.
-#         rm_all_ones: If True, removes the bit string with all '1's.
-#     Returns:
-#         A SparsePauliOp observable.
-#     """
-#     interaction_strength_list = []
-
-#     for bit_string, count in joint_counts.items():
-#         num_ones = bit_string.count('1')  # Count the number of '1's
-
-#         if num_ones == num_features and rm_all_ones:
-#             continue
-
-#         if num_ones >= min_ones:  # Consider only if at least min_ones '1's are present
-#             nodes = tuple(i for i, bit in enumerate(bit_string) if bit == '1')
-
-#             strength = -float(count)
-#             #strength = count*(-1.0)**(num_ones+1) 
-#             #strength = float(count)
-#             #strength = count*(-1.0)**(num_ones) 
-
-#             pauli_string = ""
-#             for i in range(num_features):
-#                 if i in nodes:
-#                     pauli_string += "Z"
-#                 else:
-#                     pauli_string += "I"
-
-#             interaction_strength_list.append((pauli_string, strength))
-
-#     interaction_observable = SparsePauliOp.from_list(interaction_strength_list)
-#     return interaction_observable
-
 
 
 from qiskit.quantum_info import SparsePauliOp
@@ -169,7 +125,6 @@ def _calculate_pauli_z_eigenvalue_for_basis_state(pauli_string_z_only: str, bit_
     """
     Calculates the eigenvalue of a Pauli string (composed ONLY of Z and I)
     for a given computational basis bit string.
-    
     Assumes pauli_string_z_only and bit_string are both ordered from MSB to LSB
     (e.g., "ZIZ" where Z is for q2, I for q1, Z for q0, and "011" where 0 is for q2, 1 for q1, 1 for q0).
     """
@@ -189,7 +144,6 @@ def _calculate_pauli_z_eigenvalue_for_basis_state(pauli_string_z_only: str, bit_
     return eigenvalue
 
 
-# --- MODIFIED create_interaction_observable_from_histogram ---
 def create_interaction_observable_from_histogram(
     joint_counts: Counter,
     num_features: int,
@@ -270,6 +224,63 @@ def create_interaction_observable_from_histogram(
     interaction_observable = SparsePauliOp.from_list(interaction_strength_list)
     return interaction_observable
 
+
+def create_interaction_observable_from_histogram_simple(joint_counts, num_features, min_ones=0, standardize=False, rm_all_ones=False):
+    """Creates a SparsePauliOp from joint histogram counts, 
+       considering interactions with a minimum number of '1's.
+    Args:
+        joint_counts: A Counter object from create_joint_histogram.
+        num_features: The total number of qubits.
+        min_ones: The minimum number of '1's required in a bit string 
+                  for the interaction to be included.
+        standardize: If True, standardizes the counts before calculating strengths.
+    Returns:
+        A SparsePauliOp observable.
+    """
+    interaction_strength_list = []
+
+    # Prepare counts for standardization if needed
+    counts_array = np.array(list(joint_counts.values()))
+    mean_count = np.mean(counts_array)
+    if standardize:
+        mean_count = np.mean(counts_array)
+        std_count = np.std(counts_array)
+        if std_count == 0:  # Handle case where all counts are the same
+            standardized_counts = np.zeros_like(counts_array)
+        else:
+            standardized_counts = (counts_array - mean_count) / std_count
+        
+        # Create a dictionary to map bitstrings to standardized counts
+        bitstring_to_std_count = dict(zip(joint_counts.keys(), standardized_counts))
+
+    for bit_string, count in joint_counts.items():
+        num_ones = bit_string.count('1')  # Count the number of '1's
+
+        if num_ones == num_features and rm_all_ones:
+            continue
+        
+        if num_ones >= min_ones:  # Consider only if at least min_ones '1's are present
+            nodes = tuple(i for i, bit in enumerate(bit_string) if bit == '1')
+            
+            if standardize:
+                strength = -bitstring_to_std_count[bit_string]  # Use standardized count
+            else:
+                #strength = -(count - mean_count)
+                strength = (count - mean_count)
+
+            pauli_string = ""
+            for i in range(num_features):
+                if i in nodes:
+                    pauli_string += "Z"
+                else:
+                    pauli_string += "I"
+            interaction_strength_list.append((pauli_string, strength))
+
+    interaction_observable = SparsePauliOp.from_list(interaction_strength_list)
+    return interaction_observable
+
+
+
 # You also provided the create_interaction_observable_general function, which is separate
 # and was not part of the problem. Keeping it as is.
 def create_interaction_observable_general(interactions, num_features):
@@ -297,15 +308,16 @@ def create_interaction_observable_general(interactions, num_features):
     interaction_observable = SparsePauliOp.from_list(interaction_strength_list)
     return interaction_observable
 
-
-
-
-def create_interaction_observable_general(interactions, num_features):
+def create_interaction_observable_general2(interactions, num_features):
     """Creates a SparsePauliOp observable for generalized interactions.
+
     Args:
-        interactions: A dictionary where keys are tuples of node indices 
-                     (e.g., (0, 1), (0, 0, 2), (0, 1, 2, 3)) and 
-                     values are the corresponding interaction strengths.
+        interactions: A dictionary where keys are tuples of node indices
+                      (e.g., (0, 1), (0, 2), (1,)) and
+                      values are the corresponding interaction strengths.
+                      For each tuple, a multi-qubit Pauli Z operator is constructed
+                      where 'Z' acts on the specified qubits and 'I' (identity)
+                      acts on all other qubits.
         num_features: The total number of qubits.
 
     Returns:
@@ -313,19 +325,36 @@ def create_interaction_observable_general(interactions, num_features):
     """
     interaction_strength_list = []
     for nodes, strength in interactions.items():
-        strength = -strength
-        pauli_string = ""
-        for i in range(num_features):
-            if i in nodes:  # Check if the current qubit is in the interaction
-                pauli_string += "Z"
-            else:
-                pauli_string += "I"
+        # Negate the strength: a positive input strength will result in a
+        # negative coefficient in the Hamiltonian, encouraging minimization
+        # of that interaction term's energy.
+        strength = -strength 
+        
+        # Initialize the Pauli string with 'I' for all qubits
+        # The string is built from MSB (highest qubit index) to LSB (qubit 0)
+        pauli_chars = ['I'] * num_features 
+        
+        # For each qubit index specified in 'nodes', change 'I' to 'Z'
+        for node_idx in nodes:
+            if not (0 <= node_idx < num_features):
+                raise ValueError(
+                    f"Node index {node_idx} is out of bounds for {num_features} features."
+                )
+            # Qiskit Pauli string order is typically MSB...LSB (q_N-1 ... q_0)
+            # So, to place 'Z' on qubit 'node_idx', we need to calculate its position
+            # from the left (MSB side).
+            # Example: for num_features=3, node_idx=0 (q0) -> position 2 (pauli_chars[2])
+            #          node_idx=1 (q1) -> position 1 (pauli_chars[1])
+            #          node_idx=2 (q2) -> position 0 (pauli_chars[0])
+            pauli_chars[num_features - 1 - node_idx] = "Z"
+            
+        pauli_string = "".join(pauli_chars)
+        
         interaction_strength_list.append((pauli_string, strength))
 
+    # Create the SparsePauliOp from the list of (Pauli string, coefficient) pairs
     interaction_observable = SparsePauliOp.from_list(interaction_strength_list)
     return interaction_observable
-
-
 
 
 def evaluate_and_plot_ansatz(ansatz, params, shots=1024, title="Quantum Sampler Results"):
@@ -366,7 +395,8 @@ def evaluate_and_plot_ansatz(ansatz, params, shots=1024, title="Quantum Sampler 
         print(f"An error occurred: {e}")
         return None
 
-def create_parameter_dictionaries(combined_qc, ct1_percentages):
+
+def create_parameter_dictionaries(combined_qc, act_percentages):
     """Creates static and variable parameter dictionaries."""
     # Get Hadamard parameters
     # params_ct = [param for param in combined_qc.parameters if 'ct1_' in param.name or 'ct2_' in param.name
@@ -376,17 +406,17 @@ def create_parameter_dictionaries(combined_qc, ct1_percentages):
     params_ct = [param for param in combined_qc.parameters if '_act_' in param.name]
 
     static_params = {}
-    for i, val in enumerate(ct1_percentages):
+    for i, val in enumerate(act_percentages):
         static_params[params_ct[i]] = val
 
     variable_params = [param for param in combined_qc.parameters if param not in static_params]
-    x0_interaction = np.zeros(len(variable_params))  # All zeros
+    x0_interaction = np.ones(len(variable_params))*np.pi*0 # All zeros | Or pi terms
     variable_params = dict(zip(variable_params, x0_interaction))
 
     return static_params, variable_params
 
 
-def create_parameter_dictionaries_cust(combined_qc, ct1_percentages):
+def create_parameter_dictionaries_cust(combined_qc, act_percentages):
     """Creates static and variable parameter dictionaries."""
     params_ct = [param for param in combined_qc.parameters if '_act_' in param.name]
 
@@ -400,7 +430,7 @@ def create_parameter_dictionaries_cust(combined_qc, ct1_percentages):
 
     # Now, iterate through the identified 'act' parameters and assign their
     for i, param in enumerate(params_ct):
-        variable_params[param] = ct1_percentages[i]
+        variable_params[param] = act_percentages[i]
 
     return static_params, variable_params
 
@@ -432,9 +462,9 @@ from scipy.optimize import minimize
 def vqe_solver(
     histogram_data,
     circuit, # Renamed from 'cirquit' for common convention
-    ct1_percentages, # Renamed from 'act_percentages' for consistency with create_parameter_dictionaries_cust
+    act_percentages, # Renamed from 'act_percentages' for consistency with create_parameter_dictionaries_cust
     cost_func_wrapper, # This function needs to be defined to accept the correct arguments (see comments below)
-    min_ones_obs=1, # Added as an explicit argument for flexibility
+    min_ones_obs=0, # Added as an explicit argument for flexibility
     optimizer_method="L-BFGS-B"
 ):
     """
@@ -452,7 +482,7 @@ def vqe_solver(
     Args:
         histogram_data (dict): Data used to create the interaction observable.
         circuit (QuantumCircuit): The parameterized quantum circuit (ansatz).
-        ct1_percentages (list): Initial percentage values for parameters
+        act_percentages (list): Initial percentage values for parameters
                                 containing '_act_' in the circuit.
         cost_func_wrapper (callable): The cost function to be minimized.
                                       It MUST accept arguments in the following order:
@@ -483,22 +513,28 @@ def vqe_solver(
     num_qubits = circuit.num_qubits # Get number of qubits from the circuit
 
     # 1. Create interaction observable
+    #mean_offset = np.mean(np.array(list(histogram_data.values())))*0.75*0
+    mean_offset = 0
     interaction_observable = create_interaction_observable_from_histogram(
-        histogram_data, num_qubits, min_ones_obs
-    )
-    print("Interaction observable CT1 from histogram:", interaction_observable)
+        histogram_data, num_qubits, min_ones=min_ones_obs, unobserved_punishment = 10, 
+        normalization_offset = mean_offset)
+    
+    # interaction_observable = create_interaction_observable_from_histogram_simple(
+    #     histogram_data, num_qubits, min_ones_obs)
+    
+    print("Interaction observable CT from histogram:", interaction_observable)
 
     # 2. Create static and variable parameter dictionaries
     # This uses the create_parameter_dictionaries_cust function from the immersive
     # which sets static_params to empty and variable_params to all circuit parameters
     # initialized to 0.0.
     # Ensure you are using create_parameter_dictionaries_cust here, not create_parameter_dictionaries
-    #static_params, variable_params_dict = create_parameter_dictionaries_cust(circuit, ct1_percentages)
-    static_params, variable_params_dict = create_parameter_dictionaries(circuit, ct1_percentages) 
+    #static_params, variable_params_dict = create_parameter_dictionaries_cust(circuit, act_percentages)
+    static_params, variable_params_dict = create_parameter_dictionaries(circuit, act_percentages) 
 
 
     print("Static Parameters:", static_params)
-    print("Variable Parameters (initialized to 0.0):", variable_params_dict)
+    print("Variable Parameters:", variable_params_dict)
 
     # 3. Initialize Qiskit Estimator
     estimator = StatevectorEstimator()
@@ -574,3 +610,4 @@ def vqe_solver(
 
     # Return the results
     return result_interaction, optimized_full_params, cost_values
+

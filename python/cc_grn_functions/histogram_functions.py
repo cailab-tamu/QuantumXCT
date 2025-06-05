@@ -6,7 +6,7 @@ def create_joint_histogram(Xct1bool):
     """
     Creates a joint histogram of boolean columns from a NumPy array.
     """
-    num_cols = Xct1bool.shape[1]
+    num_cols = Xct1bool.shape[1] # <--- Value is assigned here
     joint_counts = Counter()
     bit_strings = set()
 
@@ -36,6 +36,35 @@ def create_percent_joint_histogram(Xct1bool):
     percent_joint_counts = {bit_string: (count / total_counts) * 100 for bit_string, count in joint_counts.items()}
 
     return percent_joint_counts, sorted(list(bit_strings))
+
+def count_boolean_vector_occurrences(boolean_vector):
+    """
+    Counts the occurrences of True and False values in a 1D boolean NumPy array,
+    returning counts with "0" for False and "1" for True as keys.
+
+    Args:
+        boolean_vector (np.array): A 1-dimensional NumPy array of boolean values.
+
+    Returns:
+        dict: A dictionary where keys are string "0" (for False) or "1" (for True)
+              and values are their counts.
+    """
+    # Ensure it's a NumPy array and converted to boolean type
+    boolean_vector = np.asarray(boolean_vector, dtype=bool)
+
+    # Validate that the input is indeed 1-dimensional
+    if boolean_vector.ndim != 1:
+        raise ValueError(f"Input must be a 1-dimensional vector, but has {boolean_vector.ndim} dimensions.")
+
+    # Convert boolean values to "0" or "1" strings before counting
+    # This is done using a list comprehension or NumPy's vectorized operations
+    bit_strings = np.where(boolean_vector, "1", "0")
+
+    # Use collections.Counter to count the occurrences of "0" and "1"
+    counts = Counter(bit_strings)
+
+    return dict(counts) # Convert Counter to a regular dictionary for simpler output
+
 
 
 def plot_joint_histogram(joint_counts, num_qubits, reverse_bits=False, features=None):
