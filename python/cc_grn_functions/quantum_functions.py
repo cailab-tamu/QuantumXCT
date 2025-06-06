@@ -1,3 +1,22 @@
+"""
+Quantum GRN Functions Module
+
+This module provides functions for constructing parameterized quantum circuits
+representing gene regulatory networks (GRNs), combining circuits, creating observables
+from measurement histograms, and running variational quantum eigensolver (VQE) optimizations
+using Qiskit. It is designed for quantum machine learning and quantum biology applications,
+especially for modeling cell-type-specific gene interactions.
+
+Main functionalities:
+- GRN ansatz circuit construction
+- Circuit combination and inter-cell-type interaction modeling
+- Observable (Hamiltonian) construction from measurement data
+- Parameter management for quantum circuits
+- VQE optimization workflow
+
+Dependencies: Qiskit, NumPy, Matplotlib, SciPy
+"""
+
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import Counter
