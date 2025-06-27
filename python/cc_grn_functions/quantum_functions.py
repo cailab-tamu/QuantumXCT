@@ -243,6 +243,115 @@ def create_interaction_observable_from_histogram(
     interaction_observable = SparsePauliOp.from_list(interaction_strength_list)
     return interaction_observable
 
+import collections
+# Import SparsePauliOp for returning the result in the desired format
+from qiskit.quantum_info import SparsePauliOp
+
+def create_interaction_observable_from_histogram2(joint_counts, min_ones, num_features):
+    """
+    Analyzes a histogram of bit strings, accumulating strengths for specific Pauli patterns.
+    The function automatically generates Pauli patterns for:
+    1. All 'I's (e.g., 'IIII' for 4 features). Its strength is set to the negative
+       of the count of the all-zero bit string ('0'*num_features) and does not
+       accumulate from other bit strings.
+    2. Exactly one 'Z' and the rest 'I's (e.g., 'ZIII', 'IZII', 'IIZI, IIIZ' for 4 features).
+       These patterns accumulate strengths from all matching bit strings.
+
+    A bit string contributes to a Pauli pattern's strength if it matches the pattern based on:
+    - 'I' in the pattern matches both '0' and '1' in the bit string at that position (wildcard).
+    - 'Z' in the pattern matches only '1' in the bit string at that position.
+
+    Args:
+        joint_counts (dict): A dictionary where keys are bit strings (e.g., '00', '01')
+                             and values are their counts (e.g., {'00': 50, '11': 120}).
+        min_ones (int): The minimum number of '1's required in a bit string
+                        for it to be considered for analysis.
+        num_features (int): The expected total length of the bit strings and Pauli patterns.
+
+    Returns:
+        SparsePauliOp: A Qiskit SparsePauliOp object where each Pauli term corresponds
+                       to a generated Pauli pattern and its coefficient is the cumulative strength.
+    """
+    # Initialize a dictionary to store cumulative strengths for each target Pauli pattern
+    cumulative_pauli_strengths = collections.defaultdict(float)
+
+    # --- Generate the target Pauli patterns based on num_features ---
+    generated_pauli_patterns = []
+
+    # 1. Add the all 'I's pattern
+    all_i_pattern = 'I' * num_features
+    generated_pauli_patterns.append(all_i_pattern)
+    cumulative_pauli_strengths[all_i_pattern] = 0.0 # Initialize its strength
+
+    # 2. Add patterns with exactly one 'Z'
+    # These will be processed for cumulative sums
+    single_z_patterns = []
+    for i in range(num_features):
+        single_z_pattern_list = ['I'] * num_features
+        single_z_pattern_list[i] = 'Z'
+        single_z_pattern = "".join(single_z_pattern_list)
+        generated_pauli_patterns.append(single_z_pattern)
+        single_z_patterns.append(single_z_pattern) # Store separately for easier iteration
+        cumulative_pauli_strengths[single_z_pattern] = 0.0 # Initialize its strength
+    # --- End of pattern generation ---
+
+
+    # Helper function to determine if a bit string matches a given Pauli pattern
+    def does_bitstring_match_pauli_pattern(bit_string, pauli_pattern):
+        # Length check for safety
+        if len(bit_string) != len(pauli_pattern):
+            return False
+
+        for i in range(len(bit_string)):
+            pattern_char = pauli_pattern[i]
+            bit_char = bit_string[i]
+
+            if pattern_char == 'I':
+                # 'I' (Identity) in the pattern acts as a wildcard, matching both '0' and '1'
+                continue
+            elif pattern_char == 'Z':
+                # 'Z' (Pauli-Z) in the pattern requires the bit string to have a '1' at this position
+                if bit_char != '1':
+                    return False # Mismatch if bit is '0' when 'Z' is required
+            else:
+                # Handle unexpected characters in the Pauli pattern (e.g., 'X', 'Y' not supported here)
+                return False
+        return True # All characters matched the pattern rules
+
+    # Determine the all-zero bit string for special handling of 'IIII'
+    all_zero_bit_string = '0' * num_features
+
+    # Iterate through each bit string and its count in the histogram
+    for bit_string, count in joint_counts.items():
+        # Ensure the bit string's length matches the expected number of features
+        if len(bit_string) != num_features:
+            # Skip bit strings that do not conform to the expected length
+            continue
+
+        # Count the number of '1's in the current bit string
+        num_ones = bit_string.count('1')
+
+        # Only process bit strings that have at least `min_ones` '1's
+        if num_ones >= min_ones:
+            # Special handling for the 'all I's' pattern (e.g., 'IIII')
+            if bit_string == all_zero_bit_string:
+                # If the bit string is all zeros, set the strength of the 'all I's' pattern
+                # to the negative of its count. This pattern will not accumulate further.
+                cumulative_pauli_strengths[all_i_pattern] = -float(count)
+                continue # Move to the next bit string, as '0'*N only affects 'I'*N in this specific way
+
+            # For all other bit strings (not all zeros) and other Pauli patterns (single 'Z's)
+            for target_pattern in single_z_patterns: # Only iterate through patterns with single 'Z's
+                if does_bitstring_match_pauli_pattern(bit_string, target_pattern):
+                    # If it matches, cumulatively add its count to the pattern's strength
+                    cumulative_pauli_strengths[target_pattern] += float(count)
+
+    # Convert defaultdict to a list of (label, complex(value)) tuples
+    # to ensure compatibility with SparsePauliOp.from_list
+    final_pauli_terms_list = [(label, complex(value)) for label, value in cumulative_pauli_strengths.items()]
+    interaction_observable = SparsePauliOp.from_list(final_pauli_terms_list)
+    return interaction_observable
+
 
 def create_interaction_observable_from_histogram_simple(joint_counts, num_features, min_ones=0, standardize=False, rm_all_ones=False):
     """Creates a SparsePauliOp from joint histogram counts, 
@@ -538,6 +647,9 @@ def vqe_solver(
         histogram_data, num_qubits, min_ones=min_ones_obs, unobserved_punishment = 10, 
         normalization_offset = mean_offset)
     
+    # interaction_observable = create_interaction_observable_from_histogram2(
+    #     histogram_data, min_ones = min_ones_obs, num_features = num_qubits)
+    
     # interaction_observable = create_interaction_observable_from_histogram_simple(
     #     histogram_data, num_qubits, min_ones_obs)
     
@@ -629,4 +741,344 @@ def vqe_solver(
 
     # Return the results
     return result_interaction, optimized_full_params, cost_values
+
+
+
+from qiskit.primitives import StatevectorEstimator
+from scipy.optimize import minimize
+import numpy as np
+# from qiskit.circuit import Parameter # Assuming Parameter is imported if needed in other parts
+# from qiskit.quantum_info import Statevector # Assuming Statevector is imported if needed in other parts
+# from quantum_functions import create_interaction_observable_general # Assuming this is available
+
+def vqe_lr_solver(
+    cc_grn_circuit_co,
+    optimized_full_params_ct1_co,
+    optimized_full_params_ct2_co,
+    interactions_lr,
+    ng_ct1,
+    ng_ct2,
+    cost_func_wrapper,
+    create_parameter_dictionaries_from_circuit,
+    create_interaction_observable_general # Explicitly pass this function too
+):
+    """
+    Performs a VQE-like optimization for LR (Long Range) interactions using the L-BFGS-B method.
+
+    Args:
+        cc_grn_circuit_co (QuantumCircuit): The quantum circuit to be optimized, representing the
+                                            ansatz or system under study.
+        optimized_full_params_ct1_co (dict): A dictionary of pre-optimized parameters for
+                                            cell type 1, which will be incorporated as static
+                                            parameters in this optimization.
+        optimized_full_params_ct2_co (dict): A dictionary of pre-optimized parameters for
+                                            cell type 2, also incorporated as static parameters.
+        interactions_lr (list): A list defining the structure of the long-range interactions
+                                for which the observable is created.
+        ng_ct1 (int): The number of qubits associated with cell type 1.
+        ng_ct2 (int): The number of qubits associated with cell type 2.
+        cost_func_wrapper (callable): The function that calculates the cost (e.g., expectation value)
+                                      for a given set of parameters. It should accept arguments in the
+                                      order: (variable_parameters_array, full_parameter_dictionary,
+                                      circuit, observable, estimator, list_of_variable_parameters).
+        create_parameter_dictionaries_from_circuit (callable): A utility function that extracts
+                                                                and separates static and variable
+                                                                parameters from the given quantum circuit.
+                                                                Expected signature:
+                                                                `static_params, variable_params = func(circuit)`.
+        create_interaction_observable_general (callable): A utility function to construct the
+                                                          interaction observable based on the
+                                                          defined interactions and total number of qubits.
+                                                          Expected signature:
+                                                          `observable = func(interactions_list, total_qubits)`.
+
+    Returns:
+        tuple: A tuple containing:
+            - result_lr_bfgs (OptimizeResult): The result object returned by `scipy.optimize.minimize`,
+                                              containing optimization details like the optimized parameters,
+                                              function value, number of iterations, etc.
+            - all_params_lr_co (dict): The final combined dictionary of all circuit parameters,
+                                      including the newly optimized long-range parameters.
+            - cost_values (list): A list of cost function values recorded at each iteration
+                                  during the optimization process.
+    """
+    # Initialize the StatevectorEstimator, which will be used to compute expectation values
+    estimator = StatevectorEstimator()
+
+    # --- 1. Create Static Parameter Dictionaries ---
+    # Extract static and variable parameters from the quantum circuit.
+    # 'static_params_lr' will hold parameters that are fixed during this optimization,
+    # 'variable_params_lr' will hold parameters that will be optimized.
+    static_params_lr, variable_params_lr = create_parameter_dictionaries_from_circuit(cc_grn_circuit_co)
+
+    # Update the 'static_params_lr' dictionary with pre-optimized values from ct1 and ct2.
+    # This ensures that parameters already optimized in other stages are fixed for this LR optimization.
+    for param in static_params_lr:
+        if param.name in [p.name for p in optimized_full_params_ct1_co]:
+            # If the parameter's name matches one from ct1 optimized parameters, update its value.
+            static_params_lr[param] = optimized_full_params_ct1_co[next(p for p in optimized_full_params_ct1_co if p.name == param.name)]
+        elif param.name in [p.name for p in optimized_full_params_ct2_co]:
+            # If the parameter's name matches one from ct2 optimized parameters, update its value.
+            static_params_lr[param] = optimized_full_params_ct2_co[next(p for p in optimized_full_params_ct2_co if p.name == param.name)]
+
+    # Initialize the array of variable parameters with zeros. This serves as the starting point
+    # for the L-BFGS-B optimization algorithm.
+    x0_lr = np.zeros(len(variable_params_lr))
+
+    # Create the combined parameter dictionary 'all_params_lr_co'.
+    # Start with the static parameters and then add the variable parameters (initially set to zeros).
+    # This dictionary will be passed to the cost function.
+    all_params_lr_co = static_params_lr.copy()
+    all_params_lr_co.update(dict(zip(variable_params_lr, x0_lr)))
+
+    print("Initial combined parameters for LR optimization:", all_params_lr_co)
+
+    # Create the interaction observable for the long-range interactions.
+    # This observable is crucial for defining the cost function (e.g., by computing its expectation value).
+    # The total number of qubits is the sum of qubits from ct1 and ct2.
+    interaction_observable_lr_co = create_interaction_observable_general(interactions_lr, ng_ct1 + ng_ct2)
+    print("Interaction observable for LR custom:", interaction_observable_lr_co)
+
+    # Initialize a list to store the cost values at each iteration of the optimization.
+    cost_values = []
+
+    # Perform the optimization using scipy's minimize function with the L-BFGS-B method.
+    # `cost_func_wrapper`: The function to minimize.
+    # `x0_lr`: The initial guess for the variable parameters.
+    # `args`: Additional arguments to pass to the `cost_func_wrapper`. These are fixed during optimization.
+    # `method`: The optimization algorithm to use.
+    # `callback`: A function called after each iteration, used here to record cost values.
+    result_lr_bfgs = minimize(
+        cost_func_wrapper,
+        x0_lr,
+        args=(all_params_lr_co, cc_grn_circuit_co, interaction_observable_lr_co, estimator, variable_params_lr),
+        method="L-BFGS-B",
+        callback=lambda xk: cost_values.append(
+            # Recalculate the cost with the current 'xk' (variable parameters) and append it.
+            cost_func_wrapper(xk, all_params_lr_co, cc_grn_circuit_co, interaction_observable_lr_co, estimator, variable_params_lr)
+        )
+    )
+
+    print("Optimization result for LR VQE:", result_lr_bfgs)
+
+    # --- 6. Results and DataFrame ---
+    # Extract the optimized values for the variable parameters from the optimization result.
+    optimized_lr_values = result_lr_bfgs.x
+
+    # Update the combined parameter dictionary with the newly optimized long-range parameter values.
+    all_params_lr_co.update(dict(zip(variable_params_lr, optimized_lr_values)))
+
+    # Return the optimization result, the final combined parameters, and the list of recorded cost values.
+    return result_lr_bfgs, all_params_lr_co, cost_values
+
+
+
+
+
+
+
+
+
+import numpy as np
+from qiskit.primitives import Sampler
+from qiskit.circuit import QuantumCircuit, Parameter # Ensure these are imported if not already
+from qiskit.quantum_info import Statevector # For StatevectorEstimator context
+
+
+# --- MODIFIED cost_func_probability_matching ---
+def cost_func_probability_matching(
+    params_array,
+    all_circuit_params_objects,
+    target_probabilities: dict,
+    circuit: QuantumCircuit,
+    sampler: Sampler,
+    shots: int = 1024,
+    epsilon: float = 1e-9
+) -> float:
+    """
+    Cost function for minimizing the distance between the quantum circuit's
+    measurement probabilities and a target probability distribution (histogram).
+
+    It calculates the Mean Squared Error (MSE) between the two distributions.
+
+    Args:
+        params_array (np.ndarray): The current numerical values of the *variable* parameters
+                                   being optimized by scipy.optimize.minimize.
+        all_circuit_params_objects (list): A list of all Parameter objects in the `circuit`,
+                                           in the order they appear when `circuit.parameters` is called.
+                                           This is used to correctly bind `params_array` to the circuit.
+        target_probabilities (dict): A dictionary mapping bit strings (e.g., "011") to
+                                     their target probability values. This is your normalized
+                                     experimental histogram data.
+        circuit (QuantumCircuit): The parameterized quantum circuit (ansatz) to be optimized.
+        sampler (Sampler): A Qiskit Sampler primitive for running the circuit and getting probabilities.
+        shots (int): The number of shots to run the quantum circuit for measurement.
+        epsilon (float): A small value for numerical stability, especially if using KL divergence.
+
+    Returns:
+        float: The calculated Mean Squared Error (MSE) between the two probability distributions.
+                Returns infinity if any target probability is non-zero but the ansatz yields zero,
+                or if the sum of probabilities is not close to 1.
+    """
+    # 1. Bind parameters to the circuit
+    bound_circuit = circuit.assign_parameters(dict(zip(all_circuit_params_objects, params_array)))
+    
+    # 2. Add measurements to the bound circuit for sampling
+    # This creates a new circuit with measurements.
+    # It's important that the original 'circuit' passed in has classical bits defined.
+    circuit_with_measurements = bound_circuit.measure_all(inplace=False) # Use inplace=False to not modify bound_circuit directly
+
+    # 3. Run the circuit on the sampler to get measurement probabilities
+    try:
+        job = sampler.run(circuit_with_measurements, shots=shots)
+        result = job.result()
+        ansatz_probabilities = result.quasi_dists[0].binary_probabilities()
+    except Exception as e:
+        print(f"Error during quantum circuit execution: {e}")
+        return np.inf # Return a very high cost on error
+
+    # 4. Calculate the Mean Squared Error (MSE)
+    mse_cost = 0.0
+    num_qubits = circuit.num_qubits # Number of qubits for iterating all states
+
+    # Iterate through all possible bit strings (2^num_qubits) to cover all states
+    for i in range(2**num_qubits):
+        bit_string = format(i, '0' + str(num_qubits) + 'b')
+
+        p_ansatz = ansatz_probabilities.get(bit_string, 0.0)
+        p_target = target_probabilities.get(bit_string, 0.0)
+
+        mse_cost += (p_ansatz - p_target)**2
+
+    return mse_cost
+
+# --- MODIFIED cost_func_wrapper_for_prob_matching ---
+def cost_func_wrapper_for_prob_matching(
+    variable_values,
+    static_params: dict,
+    circuit: QuantumCircuit,
+    sampler: Sampler,
+    variable_param_objects: list,
+    target_probabilities: dict,
+    shots: int = 1024
+) -> float:
+    """
+    Wrapper function to adapt the probability matching cost function for scipy.optimize.minimize.
+    It combines static and variable parameters, binds them to the circuit, and calls the
+    `cost_func_probability_matching`.
+    """
+    all_params_for_binding = static_params.copy()
+    for i, param_obj in enumerate(variable_param_objects):
+        all_params_for_binding[param_obj] = variable_values[i]
+
+    # Pass the full parameter dictionary to cost_func_probability_matching
+    # The `all_circuit_params_objects` for `cost_func_probability_matching`
+    # should be `list(circuit.parameters)` to ensure correct order for binding.
+    return cost_func_probability_matching(
+        params_array=list(all_params_for_binding.values()), # Pass values in circuit.parameters order
+        all_circuit_params_objects=list(circuit.parameters), # Pass parameter objects in circuit.parameters order
+        target_probabilities=target_probabilities,
+        circuit=circuit,
+        sampler=sampler,
+        shots=shots
+    )
+
+# --- MODIFIED prob_dist_matching_solver ---
+# (No changes needed here for the measurement fix, but including for completeness)
+def prob_dist_matching_solver(
+    target_histogram_data: Counter,
+    circuit: QuantumCircuit,
+    act_percentages: list,
+    min_ones_obs: int = 0,
+    optimizer_method: str = "L-BFGS-B",
+    shots: int = 1024,
+):
+    num_qubits = circuit.num_qubits
+
+    total_counts = sum(target_histogram_data.values())
+    if total_counts == 0:
+        raise ValueError("Target histogram data is empty or all counts are zero.")
+
+    filtered_counts = Counter()
+    for bit_string, count in target_histogram_data.items():
+        if bit_string.count('1') >= min_ones_obs:
+            filtered_counts[bit_string] = count
+
+    if sum(filtered_counts.values()) == 0:
+        print("Warning: Filtering resulted in an empty histogram. Using original counts for normalization.")
+        target_probabilities = {bs: count / total_counts for bs, count in target_histogram_data.items()}
+    else:
+        target_probabilities = {bs: count / sum(filtered_counts.values()) for bs, count in filtered_counts.items()}
+
+    print("\nTarget Probabilities (P_obs):", target_probabilities)
+
+    static_params, variable_params_dict = create_parameter_dictionaries(circuit, act_percentages)
+
+    initial_full_params = static_params.copy()
+    initial_full_params.update(variable_params_dict)
+
+    all_circuit_param_objects = list(circuit.parameters)
+    x0_initial = np.array([initial_full_params.get(p, 0.0) for p in all_circuit_param_objects])
+
+    print("\nInitial All Parameters (for optimizer x0):", x0_initial)
+    print("Parameter Objects (ordered):", [p.name for p in all_circuit_param_objects])
+
+
+    cost_history = []
+    iteration_data = {'counter': 0}
+    def callback_func(xk):
+        current_cost = cost_func_wrapper_for_prob_matching(
+            xk,
+            static_params,
+            circuit,
+            all_circuit_param_objects,
+            target_probabilities,
+            shots
+        )
+        cost_history.append(current_cost)
+
+        current_counter = iteration_data['counter']
+        print_criteria = 20 if current_counter <= 100 else 100
+        if current_counter % print_criteria == 0:
+            print(f"Iteration {current_counter}: Current cost: {current_cost}")
+        iteration_data['counter'] += 1
+
+    print(f"\nStarting probability distribution matching optimization with method: {optimizer_method}")
+    result = minimize(
+        fun=lambda xk: cost_func_wrapper_for_prob_matching(
+            xk,
+            static_params,
+            circuit,
+            all_circuit_param_objects,
+            target_probabilities,
+            shots
+        ),
+        x0=x0_initial,
+        method=optimizer_method,
+        callback=callback_func
+    )
+
+    print("\nOptimization Result:")
+    print(result)
+    print(f"\nFinal Cost (MSE): {result.fun}")
+
+    optimized_params_array = result.x
+    optimized_full_params = {}
+    for i, param_obj in enumerate(all_circuit_param_objects):
+        optimized_full_params[param_obj] = optimized_params_array[i]
+
+    print("\nOptimized Full Parameters:")
+    for param, value in optimized_full_params.items():
+        print(f"  {param.name}: {value}")
+
+    final_bound_circuit = circuit.assign_parameters(optimized_full_params)
+    
+    # Ensure this circuit also has measurements for final sampling/plotting
+    final_circuit_with_measurements = final_bound_circuit.measure_all(inplace=False)
+
+    job_final = sampler.run(final_circuit_with_measurements, shots=shots)
+    final_ansatz_probabilities = job_final.result().quasi_dists[0].binary_probabilities()
+    print("\nFinal Optimized Ansatz Probabilities:", final_ansatz_probabilities)
+
+    return result, optimized_full_params, cost_history, final_ansatz_probabilities
 
