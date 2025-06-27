@@ -9,8 +9,8 @@ FibroblastGenes = ["TGFB1", "IL6", "PDGFRB"];
 testbatch = "Cancer Cells (Co)";
 testgenes = CancerGenes;
 
-hx=gui.myFigure;
-
+% hx=gui.myFigure;
+hx = figure;
 nexttile
 [patn, X] = e_getnX(testbatch, testgenes, sce);
 
@@ -62,5 +62,5 @@ xlabel('Expression pattern');
 title(sprintf('Quantum Simulation - KL = %f',kl));
 
 
-hx.FigureHandle.Position = [2.4650    0.2077    1.2700    0.4200]*1000;
-hx.show;
+% hx.Position = [2.4650    0.2077    1.2700    0.4200]*1000;
+% hx.show;
