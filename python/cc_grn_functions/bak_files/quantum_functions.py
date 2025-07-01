@@ -244,6 +244,170 @@ def create_interaction_observable_from_histogram(
     return interaction_observable
 
 import collections
+# Import SparsePauliOp for returning the result in the desired format
+from qiskit.quantum_info import SparsePauliOp
+
+def create_interaction_observable_from_histogram2(joint_counts, min_ones, num_features):
+    """
+    Analyzes a histogram of bit strings, accumulating strengths for specific Pauli patterns.
+    The function automatically generates Pauli patterns for:
+    1. All 'I's (e.g., 'IIII' for 4 features). Its strength is set to the negative
+       of the count of the all-zero bit string ('0'*num_features) and does not
+       accumulate from other bit strings.
+    2. Exactly one 'Z' and the rest 'I's (e.g., 'ZIII', 'IZII', 'IIZI, IIIZ' for 4 features).
+       These patterns accumulate strengths from all matching bit strings.
+
+    A bit string contributes to a Pauli pattern's strength if it matches the pattern based on:
+    - 'I' in the pattern matches both '0' and '1' in the bit string at that position (wildcard).
+    - 'Z' in the pattern matches only '1' in the bit string at that position.
+
+    Args:
+        joint_counts (dict): A dictionary where keys are bit strings (e.g., '00', '01')
+                             and values are their counts (e.g., {'00': 50, '11': 120}).
+        min_ones (int): The minimum number of '1's required in a bit string
+                        for it to be considered for analysis.
+        num_features (int): The expected total length of the bit strings and Pauli patterns.
+
+    Returns:
+        SparsePauliOp: A Qiskit SparsePauliOp object where each Pauli term corresponds
+                       to a generated Pauli pattern and its coefficient is the cumulative strength.
+    """
+    # Initialize a dictionary to store cumulative strengths for each target Pauli pattern
+    cumulative_pauli_strengths = collections.defaultdict(float)
+
+    # --- Generate the target Pauli patterns based on num_features ---
+    generated_pauli_patterns = []
+
+    # 1. Add the all 'I's pattern
+    all_i_pattern = 'I' * num_features
+    generated_pauli_patterns.append(all_i_pattern)
+    cumulative_pauli_strengths[all_i_pattern] = 0.0 # Initialize its strength
+
+    # 2. Add patterns with exactly one 'Z'
+    # These will be processed for cumulative sums
+    single_z_patterns = []
+    for i in range(num_features):
+        single_z_pattern_list = ['I'] * num_features
+        single_z_pattern_list[i] = 'Z'
+        single_z_pattern = "".join(single_z_pattern_list)
+        generated_pauli_patterns.append(single_z_pattern)
+        single_z_patterns.append(single_z_pattern) # Store separately for easier iteration
+        cumulative_pauli_strengths[single_z_pattern] = 0.0 # Initialize its strength
+    # --- End of pattern generation ---
+
+
+    # Helper function to determine if a bit string matches a given Pauli pattern
+    def does_bitstring_match_pauli_pattern(bit_string, pauli_pattern):
+        # Length check for safety
+        if len(bit_string) != len(pauli_pattern):
+            return False
+
+        for i in range(len(bit_string)):
+            pattern_char = pauli_pattern[i]
+            bit_char = bit_string[i]
+
+            if pattern_char == 'I':
+                # 'I' (Identity) in the pattern acts as a wildcard, matching both '0' and '1'
+                continue
+            elif pattern_char == 'Z':
+                # 'Z' (Pauli-Z) in the pattern requires the bit string to have a '1' at this position
+                if bit_char != '1':
+                    return False # Mismatch if bit is '0' when 'Z' is required
+            else:
+                # Handle unexpected characters in the Pauli pattern (e.g., 'X', 'Y' not supported here)
+                return False
+        return True # All characters matched the pattern rules
+
+    # Determine the all-zero bit string for special handling of 'IIII'
+    all_zero_bit_string = '0' * num_features
+
+    # Iterate through each bit string and its count in the histogram
+    for bit_string, count in joint_counts.items():
+        # Ensure the bit string's length matches the expected number of features
+        if len(bit_string) != num_features:
+            # Skip bit strings that do not conform to the expected length
+            continue
+
+        # Count the number of '1's in the current bit string
+        num_ones = bit_string.count('1')
+
+        # Only process bit strings that have at least `min_ones` '1's
+        if num_ones >= min_ones:
+            # Special handling for the 'all I's' pattern (e.g., 'IIII')
+            if bit_string == all_zero_bit_string:
+                # If the bit string is all zeros, set the strength of the 'all I's' pattern
+                # to the negative of its count. This pattern will not accumulate further.
+                cumulative_pauli_strengths[all_i_pattern] = -float(count)
+                continue # Move to the next bit string, as '0'*N only affects 'I'*N in this specific way
+
+            # For all other bit strings (not all zeros) and other Pauli patterns (single 'Z's)
+            for target_pattern in single_z_patterns: # Only iterate through patterns with single 'Z's
+                if does_bitstring_match_pauli_pattern(bit_string, target_pattern):
+                    # If it matches, cumulatively add its count to the pattern's strength
+                    cumulative_pauli_strengths[target_pattern] += float(count)
+
+    # Convert defaultdict to a list of (label, complex(value)) tuples
+    # to ensure compatibility with SparsePauliOp.from_list
+    final_pauli_terms_list = [(label, complex(value)) for label, value in cumulative_pauli_strengths.items()]
+    interaction_observable = SparsePauliOp.from_list(final_pauli_terms_list)
+    return interaction_observable
+
+
+def create_interaction_observable_from_histogram_simple(joint_counts, num_features, min_ones=0, standardize=False, rm_all_ones=False):
+    """Creates a SparsePauliOp from joint histogram counts, 
+       considering interactions with a minimum number of '1's.
+    Args:
+        joint_counts: A Counter object from create_joint_histogram.
+        num_features: The total number of qubits.
+        min_ones: The minimum number of '1's required in a bit string 
+                  for the interaction to be included.
+        standardize: If True, standardizes the counts before calculating strengths.
+    Returns:
+        A SparsePauliOp observable.
+    """
+    interaction_strength_list = []
+
+    # Prepare counts for standardization if needed
+    counts_array = np.array(list(joint_counts.values()))
+    mean_count = np.mean(counts_array)
+    if standardize:
+        mean_count = np.mean(counts_array)
+        std_count = np.std(counts_array)
+        if std_count == 0:  # Handle case where all counts are the same
+            standardized_counts = np.zeros_like(counts_array)
+        else:
+            standardized_counts = (counts_array - mean_count) / std_count
+        
+        # Create a dictionary to map bitstrings to standardized counts
+        bitstring_to_std_count = dict(zip(joint_counts.keys(), standardized_counts))
+
+    for bit_string, count in joint_counts.items():
+        num_ones = bit_string.count('1')  # Count the number of '1's
+
+        if num_ones == num_features and rm_all_ones:
+            continue
+        
+        if num_ones >= min_ones:  # Consider only if at least min_ones '1's are present
+            nodes = tuple(i for i, bit in enumerate(bit_string) if bit == '1')
+            
+            if standardize:
+                strength = -bitstring_to_std_count[bit_string]  # Use standardized count
+            else:
+                #strength = -(count - mean_count)
+                strength = (count - mean_count)
+
+            pauli_string = ""
+            for i in range(num_features):
+                if i in nodes:
+                    pauli_string += "Z"
+                else:
+                    pauli_string += "I"
+            interaction_strength_list.append((pauli_string, strength))
+
+    interaction_observable = SparsePauliOp.from_list(interaction_strength_list)
+    return interaction_observable
+
+
 
 # You also provided the create_interaction_observable_general function, which is separate
 # and was not part of the problem. Keeping it as is.
@@ -335,6 +499,9 @@ def evaluate_and_plot_ansatz(ansatz, params, shots=1024, title="VQE Quantum Samp
         counts = data_pub.meas.get_counts()
 
         print(f"The counts are: {counts}")
+
+        # Plot histogram:
+        plot_histogram(counts, bar_labels=True, title=title).show()
 
         # Matplotlib customization:
         sorted_counts = dict(sorted(counts.items()))
@@ -485,6 +652,12 @@ def vqe_solver(
     interaction_observable = create_interaction_observable_from_histogram(
         histogram_data, num_qubits, min_ones=min_ones_obs, unobserved_punishment = 10, 
         normalization_offset = mean_offset)
+    
+    # interaction_observable = create_interaction_observable_from_histogram2(
+    #     histogram_data, min_ones = min_ones_obs, num_features = num_qubits)
+    
+    # interaction_observable = create_interaction_observable_from_histogram_simple(
+    #     histogram_data, num_qubits, min_ones_obs)
     
     print("Interaction observable CT from histogram:", interaction_observable)
 
@@ -703,3 +876,215 @@ def vqe_lr_solver(
 
     # Return the optimization result, the final combined parameters, and the list of recorded cost values.
     return result_lr_bfgs, all_params_lr_co, cost_values
+
+
+
+
+
+
+
+
+
+import numpy as np
+from qiskit.primitives import Sampler
+from qiskit.circuit import QuantumCircuit, Parameter # Ensure these are imported if not already
+from qiskit.quantum_info import Statevector # For StatevectorEstimator context
+
+
+# --- MODIFIED cost_func_probability_matching ---
+def cost_func_probability_matching(
+    params_array,
+    all_circuit_params_objects,
+    target_probabilities: dict,
+    circuit: QuantumCircuit,
+    sampler: Sampler,
+    shots: int = 1024,
+    epsilon: float = 1e-9
+) -> float:
+    """
+    Cost function for minimizing the distance between the quantum circuit's
+    measurement probabilities and a target probability distribution (histogram).
+
+    It calculates the Mean Squared Error (MSE) between the two distributions.
+
+    Args:
+        params_array (np.ndarray): The current numerical values of the *variable* parameters
+                                   being optimized by scipy.optimize.minimize.
+        all_circuit_params_objects (list): A list of all Parameter objects in the `circuit`,
+                                           in the order they appear when `circuit.parameters` is called.
+                                           This is used to correctly bind `params_array` to the circuit.
+        target_probabilities (dict): A dictionary mapping bit strings (e.g., "011") to
+                                     their target probability values. This is your normalized
+                                     experimental histogram data.
+        circuit (QuantumCircuit): The parameterized quantum circuit (ansatz) to be optimized.
+        sampler (Sampler): A Qiskit Sampler primitive for running the circuit and getting probabilities.
+        shots (int): The number of shots to run the quantum circuit for measurement.
+        epsilon (float): A small value for numerical stability, especially if using KL divergence.
+
+    Returns:
+        float: The calculated Mean Squared Error (MSE) between the two probability distributions.
+                Returns infinity if any target probability is non-zero but the ansatz yields zero,
+                or if the sum of probabilities is not close to 1.
+    """
+    # 1. Bind parameters to the circuit
+    bound_circuit = circuit.assign_parameters(dict(zip(all_circuit_params_objects, params_array)))
+    
+    # 2. Add measurements to the bound circuit for sampling
+    # This creates a new circuit with measurements.
+    # It's important that the original 'circuit' passed in has classical bits defined.
+    circuit_with_measurements = bound_circuit.measure_all(inplace=False) # Use inplace=False to not modify bound_circuit directly
+
+    # 3. Run the circuit on the sampler to get measurement probabilities
+    try:
+        job = sampler.run(circuit_with_measurements, shots=shots)
+        result = job.result()
+        ansatz_probabilities = result.quasi_dists[0].binary_probabilities()
+    except Exception as e:
+        print(f"Error during quantum circuit execution: {e}")
+        return np.inf # Return a very high cost on error
+
+    # 4. Calculate the Mean Squared Error (MSE)
+    mse_cost = 0.0
+    num_qubits = circuit.num_qubits # Number of qubits for iterating all states
+
+    # Iterate through all possible bit strings (2^num_qubits) to cover all states
+    for i in range(2**num_qubits):
+        bit_string = format(i, '0' + str(num_qubits) + 'b')
+
+        p_ansatz = ansatz_probabilities.get(bit_string, 0.0)
+        p_target = target_probabilities.get(bit_string, 0.0)
+
+        mse_cost += (p_ansatz - p_target)**2
+
+    return mse_cost
+
+# --- MODIFIED cost_func_wrapper_for_prob_matching ---
+def cost_func_wrapper_for_prob_matching(
+    variable_values,
+    static_params: dict,
+    circuit: QuantumCircuit,
+    sampler: Sampler,
+    variable_param_objects: list,
+    target_probabilities: dict,
+    shots: int = 1024
+) -> float:
+    """
+    Wrapper function to adapt the probability matching cost function for scipy.optimize.minimize.
+    It combines static and variable parameters, binds them to the circuit, and calls the
+    `cost_func_probability_matching`.
+    """
+    all_params_for_binding = static_params.copy()
+    for i, param_obj in enumerate(variable_param_objects):
+        all_params_for_binding[param_obj] = variable_values[i]
+
+    # Pass the full parameter dictionary to cost_func_probability_matching
+    # The `all_circuit_params_objects` for `cost_func_probability_matching`
+    # should be `list(circuit.parameters)` to ensure correct order for binding.
+    return cost_func_probability_matching(
+        params_array=list(all_params_for_binding.values()), # Pass values in circuit.parameters order
+        all_circuit_params_objects=list(circuit.parameters), # Pass parameter objects in circuit.parameters order
+        target_probabilities=target_probabilities,
+        circuit=circuit,
+        sampler=sampler,
+        shots=shots
+    )
+
+# --- MODIFIED prob_dist_matching_solver ---
+# (No changes needed here for the measurement fix, but including for completeness)
+def prob_dist_matching_solver(
+    target_histogram_data: Counter,
+    circuit: QuantumCircuit,
+    act_percentages: list,
+    min_ones_obs: int = 0,
+    optimizer_method: str = "L-BFGS-B",
+    shots: int = 1024,
+):
+    num_qubits = circuit.num_qubits
+
+    total_counts = sum(target_histogram_data.values())
+    if total_counts == 0:
+        raise ValueError("Target histogram data is empty or all counts are zero.")
+
+    filtered_counts = Counter()
+    for bit_string, count in target_histogram_data.items():
+        if bit_string.count('1') >= min_ones_obs:
+            filtered_counts[bit_string] = count
+
+    if sum(filtered_counts.values()) == 0:
+        print("Warning: Filtering resulted in an empty histogram. Using original counts for normalization.")
+        target_probabilities = {bs: count / total_counts for bs, count in target_histogram_data.items()}
+    else:
+        target_probabilities = {bs: count / sum(filtered_counts.values()) for bs, count in filtered_counts.items()}
+
+    print("\nTarget Probabilities (P_obs):", target_probabilities)
+
+    static_params, variable_params_dict = create_parameter_dictionaries(circuit, act_percentages)
+
+    initial_full_params = static_params.copy()
+    initial_full_params.update(variable_params_dict)
+
+    all_circuit_param_objects = list(circuit.parameters)
+    x0_initial = np.array([initial_full_params.get(p, 0.0) for p in all_circuit_param_objects])
+
+    print("\nInitial All Parameters (for optimizer x0):", x0_initial)
+    print("Parameter Objects (ordered):", [p.name for p in all_circuit_param_objects])
+
+
+    cost_history = []
+    iteration_data = {'counter': 0}
+    def callback_func(xk):
+        current_cost = cost_func_wrapper_for_prob_matching(
+            xk,
+            static_params,
+            circuit,
+            all_circuit_param_objects,
+            target_probabilities,
+            shots
+        )
+        cost_history.append(current_cost)
+
+        current_counter = iteration_data['counter']
+        print_criteria = 20 if current_counter <= 100 else 100
+        if current_counter % print_criteria == 0:
+            print(f"Iteration {current_counter}: Current cost: {current_cost}")
+        iteration_data['counter'] += 1
+
+    print(f"\nStarting probability distribution matching optimization with method: {optimizer_method}")
+    result = minimize(
+        fun=lambda xk: cost_func_wrapper_for_prob_matching(
+            xk,
+            static_params,
+            circuit,
+            all_circuit_param_objects,
+            target_probabilities,
+            shots
+        ),
+        x0=x0_initial,
+        method=optimizer_method,
+        callback=callback_func
+    )
+
+    print("\nOptimization Result:")
+    print(result)
+    print(f"\nFinal Cost (MSE): {result.fun}")
+
+    optimized_params_array = result.x
+    optimized_full_params = {}
+    for i, param_obj in enumerate(all_circuit_param_objects):
+        optimized_full_params[param_obj] = optimized_params_array[i]
+
+    print("\nOptimized Full Parameters:")
+    for param, value in optimized_full_params.items():
+        print(f"  {param.name}: {value}")
+
+    final_bound_circuit = circuit.assign_parameters(optimized_full_params)
+    
+    # Ensure this circuit also has measurements for final sampling/plotting
+    final_circuit_with_measurements = final_bound_circuit.measure_all(inplace=False)
+
+    job_final = sampler.run(final_circuit_with_measurements, shots=shots)
+    final_ansatz_probabilities = job_final.result().quasi_dists[0].binary_probabilities()
+    print("\nFinal Optimized Ansatz Probabilities:", final_ansatz_probabilities)
+
+    return result, optimized_full_params, cost_history, final_ansatz_probabilities
+
