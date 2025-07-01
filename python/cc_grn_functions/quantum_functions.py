@@ -485,7 +485,7 @@ def create_interaction_observable_general2(interactions, num_features):
     return interaction_observable
 
 
-def evaluate_and_plot_ansatz(ansatz, params, shots=1024, title="Quantum Sampler Results"):
+def evaluate_and_plot_ansatz(ansatz, params, shots=1024, title="VQE Quantum Sampler Results", figsize=(5, 4), filename=None):
     """Evaluates a quantum ansatz, plots results and circuit, and prints counts."""
     try:
         sampler = StatevectorSampler()
@@ -508,13 +508,19 @@ def evaluate_and_plot_ansatz(ansatz, params, shots=1024, title="Quantum Sampler 
         x_labels = list(sorted_counts.keys())
         y_values = list(sorted_counts.values())
 
-        plt.figure(figsize=(12, 8))
+        plt.figure(figsize=figsize)
         plt.bar(x_labels, y_values)
-        plt.xlabel("Measurement Outcomes", fontsize=16)
-        plt.ylabel("Counts", fontsize=16)
-        plt.title(title, fontsize=18)
-        plt.xticks(rotation=45, ha='right', fontsize=14)
+        plt.xlabel("Measurement Outcomes")
+        plt.ylabel("Counts")
+        plt.title(title)
+        plt.xticks(rotation=45, ha='right')
+        #plt.xlabel("Measurement Outcomes", fontsize=16)
+        #plt.ylabel("Counts", fontsize=16)
+        #plt.title(title, fontsize=18)
+        #plt.xticks(rotation=45, ha='right', fontsize=14)
         plt.tight_layout()
+        if filename:
+            plt.savefig(filename, bbox_inches='tight')
         plt.show()
 
         return counts, bound_circuit
