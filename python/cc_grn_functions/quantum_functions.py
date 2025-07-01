@@ -245,8 +245,35 @@ def create_interaction_observable_from_histogram(
 
 import collections
 
-# You also provided the create_interaction_observable_general function, which is separate
-# and was not part of the problem. Keeping it as is.
+# # You also provided the create_interaction_observable_general function, which is separate
+# # and was not part of the problem. Keeping it as is.
+# def create_interaction_observable_general(interactions, num_features):
+#     """Creates a SparsePauliOp observable for generalized interactions.
+#     Args:
+#         interactions: A dictionary where keys are tuples of node indices 
+#                       (e.g., (0, 1), (0, 0, 2), (0, 1, 2, 3)) and 
+#                       values are the corresponding interaction strengths.
+#         num_features: The total number of qubits.
+
+#     Returns:
+#         A SparsePauliOp observable.
+#     """
+#     interaction_strength_list = []
+#     for nodes, strength in interactions.items():
+#         strength = -strength # Assuming you want to minimize this energy
+#         pauli_string = ""
+#         for i in range(num_features):
+#             if i in nodes:  # Check if the current qubit is in the interaction
+#                 pauli_string += "Z"
+#             else:
+#                 pauli_string += "I"
+#         interaction_strength_list.append((pauli_string, strength))
+
+#     interaction_observable = SparsePauliOp.from_list(interaction_strength_list)
+#     return interaction_observable
+
+
+# The corrected version from previous discussions
 def create_interaction_observable_general(interactions, num_features):
     """Creates a SparsePauliOp observable for generalized interactions.
     Args:
@@ -261,16 +288,25 @@ def create_interaction_observable_general(interactions, num_features):
     interaction_strength_list = []
     for nodes, strength in interactions.items():
         strength = -strength # Assuming you want to minimize this energy
-        pauli_string = ""
-        for i in range(num_features):
-            if i in nodes:  # Check if the current qubit is in the interaction
-                pauli_string += "Z"
-            else:
-                pauli_string += "I"
+        
+        pauli_chars = ['I'] * num_features
+        
+        # This loop correctly maps Qiskit's qubit index (0 for LSB, N-1 for MSB)
+        # to the position in an MSB-first string (0 for MSB, N-1 for LSB).
+        for node_idx in nodes:
+            if not (0 <= node_idx < num_features):
+                raise ValueError(
+                    f"Node index {node_idx} is out of bounds for {num_features} features."
+                )
+            pauli_chars[num_features - 1 - node_idx] = "Z" # This is the crucial line
+            
+        pauli_string = "".join(pauli_chars)
+        
         interaction_strength_list.append((pauli_string, strength))
 
     interaction_observable = SparsePauliOp.from_list(interaction_strength_list)
     return interaction_observable
+
 
 def create_interaction_observable_general2(interactions, num_features):
     """Creates a SparsePauliOp observable for generalized interactions.
@@ -432,7 +468,7 @@ def vqe_solver(
     act_percentages, # Renamed from 'act_percentages' for consistency with create_parameter_dictionaries_cust
     cost_func_wrapper, # This function needs to be defined to accept the correct arguments (see comments below)
     min_ones_obs=0, # Added as an explicit argument for flexibility
-    optimizer_method="L-BFGS-B"
+    optimizer_method="COBYLA" # "L-BFGS-B | COBYLA
 ):
     """
     Performs a Variational Quantum Eigensolver (VQE) optimization.
@@ -592,8 +628,7 @@ def vqe_lr_solver(
     ng_ct1,
     ng_ct2,
     cost_func_wrapper,
-    create_parameter_dictionaries_from_circuit,
-    create_interaction_observable_general # Explicitly pass this function too
+    optimizer_method="COBYLA" # "L-BFGS-B | COBYLA
 ):
     """
     Performs a VQE-like optimization for LR (Long Range) interactions using the L-BFGS-B method.
@@ -614,16 +649,7 @@ def vqe_lr_solver(
                                       for a given set of parameters. It should accept arguments in the
                                       order: (variable_parameters_array, full_parameter_dictionary,
                                       circuit, observable, estimator, list_of_variable_parameters).
-        create_parameter_dictionaries_from_circuit (callable): A utility function that extracts
-                                                                and separates static and variable
-                                                                parameters from the given quantum circuit.
-                                                                Expected signature:
-                                                                `static_params, variable_params = func(circuit)`.
-        create_interaction_observable_general (callable): A utility function to construct the
-                                                          interaction observable based on the
-                                                          defined interactions and total number of qubits.
-                                                          Expected signature:
-                                                          `observable = func(interactions_list, total_qubits)`.
+
 
     Returns:
         tuple: A tuple containing:
@@ -685,7 +711,7 @@ def vqe_lr_solver(
         cost_func_wrapper,
         x0_lr,
         args=(all_params_lr_co, cc_grn_circuit_co, interaction_observable_lr_co, estimator, variable_params_lr),
-        method="L-BFGS-B",
+        method = optimizer_method,
         callback=lambda xk: cost_values.append(
             # Recalculate the cost with the current 'xk' (variable parameters) and append it.
             cost_func_wrapper(xk, all_params_lr_co, cc_grn_circuit_co, interaction_observable_lr_co, estimator, variable_params_lr)
