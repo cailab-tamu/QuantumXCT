@@ -245,33 +245,6 @@ def create_interaction_observable_from_histogram(
 
 import collections
 
-# # You also provided the create_interaction_observable_general function, which is separate
-# # and was not part of the problem. Keeping it as is.
-# def create_interaction_observable_general(interactions, num_features):
-#     """Creates a SparsePauliOp observable for generalized interactions.
-#     Args:
-#         interactions: A dictionary where keys are tuples of node indices 
-#                       (e.g., (0, 1), (0, 0, 2), (0, 1, 2, 3)) and 
-#                       values are the corresponding interaction strengths.
-#         num_features: The total number of qubits.
-
-#     Returns:
-#         A SparsePauliOp observable.
-#     """
-#     interaction_strength_list = []
-#     for nodes, strength in interactions.items():
-#         strength = -strength # Assuming you want to minimize this energy
-#         pauli_string = ""
-#         for i in range(num_features):
-#             if i in nodes:  # Check if the current qubit is in the interaction
-#                 pauli_string += "Z"
-#             else:
-#                 pauli_string += "I"
-#         interaction_strength_list.append((pauli_string, strength))
-
-#     interaction_observable = SparsePauliOp.from_list(interaction_strength_list)
-#     return interaction_observable
-
 
 # The corrected version from previous discussions
 def create_interaction_observable_general(interactions, num_features):
@@ -304,55 +277,6 @@ def create_interaction_observable_general(interactions, num_features):
         
         interaction_strength_list.append((pauli_string, strength))
 
-    interaction_observable = SparsePauliOp.from_list(interaction_strength_list)
-    return interaction_observable
-
-
-def create_interaction_observable_general2(interactions, num_features):
-    """Creates a SparsePauliOp observable for generalized interactions.
-
-    Args:
-        interactions: A dictionary where keys are tuples of node indices
-                      (e.g., (0, 1), (0, 2), (1,)) and
-                      values are the corresponding interaction strengths.
-                      For each tuple, a multi-qubit Pauli Z operator is constructed
-                      where 'Z' acts on the specified qubits and 'I' (identity)
-                      acts on all other qubits.
-        num_features: The total number of qubits.
-
-    Returns:
-        A SparsePauliOp observable.
-    """
-    interaction_strength_list = []
-    for nodes, strength in interactions.items():
-        # Negate the strength: a positive input strength will result in a
-        # negative coefficient in the Hamiltonian, encouraging minimization
-        # of that interaction term's energy.
-        strength = -strength 
-        
-        # Initialize the Pauli string with 'I' for all qubits
-        # The string is built from MSB (highest qubit index) to LSB (qubit 0)
-        pauli_chars = ['I'] * num_features 
-        
-        # For each qubit index specified in 'nodes', change 'I' to 'Z'
-        for node_idx in nodes:
-            if not (0 <= node_idx < num_features):
-                raise ValueError(
-                    f"Node index {node_idx} is out of bounds for {num_features} features."
-                )
-            # Qiskit Pauli string order is typically MSB...LSB (q_N-1 ... q_0)
-            # So, to place 'Z' on qubit 'node_idx', we need to calculate its position
-            # from the left (MSB side).
-            # Example: for num_features=3, node_idx=0 (q0) -> position 2 (pauli_chars[2])
-            #          node_idx=1 (q1) -> position 1 (pauli_chars[1])
-            #          node_idx=2 (q2) -> position 0 (pauli_chars[0])
-            pauli_chars[num_features - 1 - node_idx] = "Z"
-            
-        pauli_string = "".join(pauli_chars)
-        
-        interaction_strength_list.append((pauli_string, strength))
-
-    # Create the SparsePauliOp from the list of (Pauli string, coefficient) pairs
     interaction_observable = SparsePauliOp.from_list(interaction_strength_list)
     return interaction_observable
 

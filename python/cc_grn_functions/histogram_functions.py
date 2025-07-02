@@ -101,63 +101,67 @@ def count_boolean_vector_occurrences(boolean_vector):
 
     return dict(counts) # Convert Counter to a regular dictionary for simpler output
 
-def plot_joint_histogram(joint_counts: Counter, num_qubits: int, features: list = None):
+
+def plot_joint_histogram(joint_counts: Counter, num_qubits: int, features: list = None, figsize=(5,4), filename: str=None, title: str = 'Joint Histogram of Boolean Columns'):
     """
     Plots the joint histogram, consistently in MSB-first order.
-    
     Args:
         joint_counts: A Counter object of observed bit string counts (keys are MSB-first).
         num_qubits: The total number of qubits/features.
         features: Optional list of feature names, where features[i] maps to qubit q_i.
                   (i.e., features[0] for q0, features[1] for q1, etc.)
+        figsize: Tuple specifying the figure size (width, height) in inches.
+        filename: Optional string to save the plot to a file (e.g., 'my_histogram.png').
+        title: String for the plot title.
     """
-    
+
     # Generate all possible bit strings in MSB-first order (e.g., "00", "01", "10", "11")
+    # These are already numerically sorted.
     all_bit_strings_msb_first = [''.join(format(i, f'0{num_qubits}b')) for i in range(2**num_qubits)]
-    
+
     counts = []
     for bit_string_msb in all_bit_strings_msb_first:
         counts.append(joint_counts.get(bit_string_msb, 0))
 
-    # Sort bit strings by numerical value for consistent plotting order
-    # (they are already generated this way by format(i, ...))
-    sorted_pairs = sorted(zip(all_bit_strings_msb_first, counts), key=lambda x: int(x[0], 2))
-    sorted_bit_strings, sorted_counts = zip(*sorted_pairs)
+    # No need to re-sort if all_bit_strings_msb_first is already numerically ordered
+    sorted_bit_strings = all_bit_strings_msb_first
+    sorted_counts = counts
 
-    plt.figure(figsize=(12, 8))
+    plt.figure(figsize=figsize)
     plt.bar(sorted_bit_strings, sorted_counts)
 
-    # Create x-axis label. Qiskit strings are MSB...LSB (q_N-1 ... q_0)
-    # If features[i] maps to q_i (Qiskit's convention for qubit indexing)
-    # then bit_string[0] corresponds to q_{N-1}, bit_string[1] to q_{N-2}, ..., bit_string[N-1] to q_0
-    
+    # Create x-axis label. Qiskit bit strings are MSB...LSB (q_{N-1} ... q_0).
+    # The `features` list is assumed to be indexed q0, q1, ..., q_{N-1}.
+    # So, bit_string[0] corresponds to q_{N-1}, bit_string[1] to q_{N-2}, ..., bit_string[N-1] to q_0.
     xlabel_text = "Bit String ("
     if features is not None:
-        # Iterate through qubit indices in Qiskit's logical order (q0, q1, ...)
-        # and map them to their corresponding position in the MSB-first string.
-        # This will label the leftmost bit in the string with q_{N-1} and its feature, etc.
         feature_map_parts = []
-        for i in range(num_qubits - 1, -1, -1): # From q_{N-1} down to q0
-            if i < len(features): # Ensure we don't go out of bounds for features list
+        # Iterate from the most significant qubit (q_{N-1}) down to the least significant (q0)
+        # to match the order of bits in the MSB-first string.
+        for i in range(num_qubits - 1, -1, -1):
+            if i < len(features): # Ensure feature name exists for this qubit index
                 feature_map_parts.append(f"q{i}={features[i]}")
             else:
-                feature_map_parts.append(f"q{i}") # If no feature name provided for this qubit
+                feature_map_parts.append(f"q{i}") # Fallback if no feature name
         xlabel_text += ", ".join(feature_map_parts) + ")"
     else:
         xlabel_text += f"q{num_qubits-1} ... q0)" # Default Qiskit string order
 
-    plt.xlabel(xlabel_text, fontsize=14)
-    plt.title("Joint Histogram of Boolean Columns", fontsize=18)
-    plt.xticks(rotation=45, ha="right", fontsize=14)
-    plt.yticks(fontsize=14)
+    plt.xlabel(xlabel_text) # Activated
+    plt.title(title) # Activated
+    plt.xticks(rotation=45, ha="right") # Keep rotation for readability
 
+    # Add text labels on top of bars
     for i, count in enumerate(sorted_counts):
         if isinstance(count, float):
-            plt.text(sorted_bit_strings[i], count, f"{count:.2f}", ha='center', va='bottom', fontsize=12)
-            plt.ylabel("Frequency (%)", fontsize=16)
+            plt.text(sorted_bit_strings[i], count, f"{count:.2f}", ha='center', va='bottom')
+            plt.ylabel("Frequency (%)") # Activated
         else:
-            plt.text(sorted_bit_strings[i], count, f"{count}", ha='center', va='bottom', fontsize=12)
-            plt.ylabel("Frequency", fontsize=16)
+            plt.text(sorted_bit_strings[i], count, f"{count}", ha='center', va='bottom')
+            plt.ylabel("Frequency") # Activated
 
-    plt.tight_layout()
-    plt.show()
+
+    plt.tight_layout() # Adjust layout to prevent labels from overlapping
+    if filename:
+        plt.savefig(filename, bbox_inches='tight') # Save figure if filename is provided
+    plt.show() # Display the plot
