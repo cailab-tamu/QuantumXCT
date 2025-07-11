@@ -3,10 +3,13 @@ load 'lite_PDGF_signaling_slows_ovarian_cancer GSM7019822_GSM7019823_GSM7019824.
 CancerGenes = ["TGFBR2","SMAD3","HIF1A","PDGFB"];
 FibroblastGenes = ["TGFB1", "IL6", "PDGFRB"];
 
-%testbatch = "Fibroblasts (Co)";
-%testgenes = FibroblastGenes;
 
-testbatch = "Cancer Cells (Co)";
+FibroblastGenes = ["TGFB1", "F3", "PDGFRB"];
+CancerGenes =     ["TGFBR2","SMAD3","HIF1A","PDGFB"];
+% testbatch = "Fibroblasts (Co)";
+% testgenes = FibroblastGenes;
+
+testbatch = "Cancer Cells (Mo)";
 testgenes = CancerGenes;
 
 % hx=gui.myFigure;
@@ -31,12 +34,18 @@ bar(p);
 set(gca,'XTick',1:length(p));
 title('Theoretical Frequencies')
 
+nexttile
+bar(pt-p);
+set(gca,'XTick',1:length(p));
+title('Observed-Theoretical')
+
+
 % ------------
 
 n = length(f0);
 layer1 = [];
 for k=1:n, layer1 = [layer1; ryGate(k,2*asin(sqrt(f0(k))))]; end
-% theta0 = pi*((rand(n,1)*2)-1);
+%theta0 = pi*((rand(n,1)*2)-1);
 theta0 = zeros(n,1);
 layer2 = [];
 for k=1:n, layer2 = [layer2; rxGate(k, theta0(k))]; end
@@ -64,3 +73,15 @@ title(sprintf('Quantum Simulation - KL = %f',kl));
 
 % hx.Position = [2.4650    0.2077    1.2700    0.4200]*1000;
 % hx.show;
+
+nexttile
+bar(pt-po);
+set(gca,'XTick',1:length(p));
+title('Observed-QSimulated')
+
+
+nexttile
+bar(p-po);
+set(gca,'XTick',1:length(p));
+title('Theoretical-QSimulated')
+ylim([-0.025 0.025]);

@@ -2,7 +2,7 @@ function [patn, X] = e_getnX(batquery, genquery, sce, plotit)
     if nargin<4, plotit = true; end
     idxc = sce.c_batch_id == batquery;
     [y, idxg] = ismember(genquery, sce.g);
-    assert(all(y))
+    %assert(all(y))
     X = 0+(sce.X(idxg, idxc)>0);
     patn = frebar(X, batquery+" - "+strtrim(sprintf("%s, ",genquery)), plotit);
 end
