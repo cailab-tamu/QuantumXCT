@@ -1,11 +1,13 @@
-addpath ../
-load '../lite_PDGF_signaling_slows_ovarian_cancer GSM7019822_GSM7019823_GSM7019824.mat'
+%addpath ../
+%load '../lite_PDGF_signaling_slows_ovarian_cancer GSM7019822_GSM7019823_GSM7019824.mat'
+run('s0_merge_subunit_genes.m')
+
 
 
 CancerGenes1 = ["HBEGF","EGFR","MAPK1","MAPK3","MAPK8","MAPK14","JUN","FOS"]; % https://www.cell.com/iscience/fulltext/S2589-0042(24)01860-1
 CancerGenes2 = ["TGFBR2","SMAD3","HIF1A","PDGFB","IL6R","LIFR"];
 CancerGenes3 = ["MET","FGFR1","FGFR2","CXCR4","ACKR3","IL6R","IL6ST","TGFBR1","TGFBR2","PDGFRA","PDGFRA","PDGFRB","PDGFRB","FLT1","KDR","FZD2","FZD5","ITGA5","ITGB1","CD44","ITGAV","PDGFA","PDGFB","PDGFA","PDGFB","TGFB1","TGFB1","IL1B","SHH","SHH","TNF","TNF"];
-CancerGenes = unique([CancerGenes1 CancerGenes2 CancerGenes3]);
+CancerGenes = unique([CancerGenes0, CancerGenes1 CancerGenes2 CancerGenes3]);
 [y] = ismember(CancerGenes, sce.g);
 CancerGenes = CancerGenes(y);
 testgenes = CancerGenes;
