@@ -1,5 +1,6 @@
 function [kl]=i_kldiverg(pt,po,rm0)
-    if nargin<3, rm0=false; end
+
+    if nargin<3, rm0=false; end   % remove all-zero state or not
     if rm0
         pt=pt(2:end);
         po=po(2:end);

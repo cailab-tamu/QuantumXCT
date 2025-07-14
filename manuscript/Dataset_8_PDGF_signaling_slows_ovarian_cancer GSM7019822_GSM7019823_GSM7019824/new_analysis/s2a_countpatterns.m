@@ -30,6 +30,9 @@ function [n, X] = getn(batquery, genquery, sce)
     [y, idxg] = ismember(genquery, sce.g);
     assert(all(y))
     X = 0+(sce.X(idxg, idxc)>0);
+
+    % f0 = sum(X,2)./size(X,2);
+
     n = frebar(X, batquery+" - "+strtrim(sprintf("%s, ",genquery)));
 end
 
