@@ -1,80 +1,54 @@
 run('s0_merge_subunit_genes.m')
+addpath ../
 CancerGenes = ["STAT3","IL6RorST","TGFBR1or2","PDGFB"];
 FibroblastGenes = ["TGFB1", "PDGFRB", "IL6"];
 
+batquery = "Fibroblasts (Mo)";
+genquery = FibroblastGenes;
+[pt_f, ~, ~, f0_f] = getn(batquery, genquery, sce, false);
+
 batquery = "Cancer Cells (Mo)";
 genquery = CancerGenes;
+[pt_c, ~, ~, f0_c] = getn(batquery, genquery, sce, false);
 
-
-[pt, ~, ~, f0] = getn(batquery, genquery, sce, false);
-
-%f0 = sum(X,2)./size(X,2);         % per gene initial activate freq.
-%pt = patn./sum(patn);             % target cell state freq.    
-
+[layer_base] = in_12layers([f0_f; f0_c]);
+C = quantumCircuit(layer_base);
 
 figure;
-
-testgenes = genquery;
 nexttile
-bar(f0)
-set(gca,'XTick',1:length(f0));
-set(gca,'XTickLabel', testgenes);
-title('Frequency of Gene')
-
+bar(pt_c)
 nexttile
-p=e_patnfreq(f0);
-bar(p);
-set(gca,'XTick',1:length(p));
-title('Theoretical Frequencies')
+bar(f0_c)
+nexttile
+bar(pt_f)
+nexttile
+bar(f0_f)
 
 nexttile
-bar(pt-p);
-set(gca,'XTick',1:length(p));
-title('Observed-Theoretical')
+plot(C)
 
 
-% ------------
+S = simulate(C);    
+[states_f, po_f] = querystates(S,[1 2 3]);     % observed state pattern in fibroblast
+[states_c, po_c] = querystates(S,[4 5 6 7]);   % observed state pattern in cancer   
 
-n = length(f0);
-layer1 = [];
-for k=1:n, layer1 = [layer1; ryGate(k,2*asin(sqrt(f0(k))))]; end
-%theta0 = pi*((rand(n,1)*2)-1);
-theta0 = zeros(n,1);
-layer2 = [];
-for k=1:n, layer2 = [layer2; rxGate(k, theta0(k))]; end
 
-C = quantumCircuit([layer1; layer2]);
 
 nexttile
-plot(C);
-
-
-S = simulate(C);
-[states,po] = querystates(S);
+bar([pt_c po_c e_patnfreq(f0_c)])
+set(gca,'XTick',1:length(states_c));
+set(gca,'XTickLabel',states_c);
+ylabel('Freq. of cells');
+xlabel('Expression pattern');
+title('Cancer Cells')
 
 nexttile
-bar(po)
-set(gca,'XTick',1:length(states));
-set(gca,'XTickLabel',states);
+bar([pt_f po_f e_patnfreq(f0_f)])
+set(gca,'XTick',1:length(states_f));
+set(gca,'XTickLabel',states_f);
 ylabel('# of cells');
 xlabel('Expression pattern');
-
-[kl]=i_kldiverg(pt, po);
-
-title(sprintf('Quantum Simulation - KL = %f',kl));
+title('Fibroblasts')
+legend({'Observed','Simulated','Theoretical'})
 
 
-% hx.Position = [2.4650    0.2077    1.2700    0.4200]*1000;
-% hx.show;
-
-nexttile
-bar(pt-po);
-set(gca,'XTick',1:length(p));
-title('Observed-QSimulated')
-
-
-nexttile
-bar(p-po);
-set(gca,'XTick',1:length(p));
-title('Theoretical-QSimulated')
-ylim([-0.025 0.025]);

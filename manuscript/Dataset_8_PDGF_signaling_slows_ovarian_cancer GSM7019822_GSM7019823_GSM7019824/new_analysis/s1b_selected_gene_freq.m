@@ -13,13 +13,13 @@ testbatch = "Cancer Cells (Mo)";
 [f0_mo] = in_get_f0(sce, testbatch, testgenes);
 
 
-%{
+
 testgenes = FibroblastGenes;
 testbatch = "Fibroblasts (Co)";
 [f0_co] = in_get_f0(sce, testbatch, testgenes);
 testbatch = "Fibroblasts (Mo)";
 [f0_mo] = in_get_f0(sce, testbatch, testgenes);
-%}
+
 
 
 figure;
