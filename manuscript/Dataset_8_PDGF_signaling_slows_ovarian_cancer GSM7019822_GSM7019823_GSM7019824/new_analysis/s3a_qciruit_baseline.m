@@ -3,7 +3,7 @@ addpath ../
 CancerGenes = ["STAT3","IL6RorST","TGFBR1or2","PDGFB"];
 FibroblastGenes = ["TGFB1", "PDGFRB", "IL6"];
 
-batquery = "Fibroblasts (Co)";
+batquery = "Fibroblasts (Mo)";
 genquery = FibroblastGenes;
 [pt_f, ~, ~, f0_f] = getn(batquery, genquery, sce, false);
 
