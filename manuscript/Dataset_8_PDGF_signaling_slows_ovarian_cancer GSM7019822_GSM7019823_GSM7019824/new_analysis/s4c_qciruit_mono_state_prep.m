@@ -15,13 +15,14 @@ genquery = CancerGenes;
 
 % [layer_base] = in_12layers([f0_f]);
     layer0 = [ryGate(1, 0.9395); ryGate(2, pi/4);...
-        ryGate(3, pi/6); ...
+        ryGate(3, pi/6); hGate(1:3); ...
         cxGate(1, 2); cxGate(2, 3); ...
         cxGate(3, 1)];
 
 
     layer1 = [ryGate(4, 1.9395); ryGate(5, pi/4);...
         ryGate(6, pi/6); ryGate(7, pi/8);...
+        hGate(4:7);...
         cxGate(4, 5); cxGate(5, 6); ...
         cxGate(6, 7); cxGate(7, 4)];
 
@@ -35,21 +36,21 @@ C = quantumCircuit(layers);
 
 
 
-methodid = 3;
+methodid = 2;
 switch methodid
     case 1
         options = optimset('Display','iter');
-        [optimtheta, fval] = fminunc(@i_obj, ones(1,7)*(pi/2), ...
+        [optimtheta, fval] = fminunc(@i_obj, rand(1,7), ...
             options, pt_f, pt_c, C);       
     case 2
         options = optimset('Display','iter');
-        [optimtheta, fval] = fminsearch(@i_obj, ones(1,7)*(pi/2), ...
+        [optimtheta, fval] = fminsearch(@i_obj, -rand(1,7), ...
             options, pt_f, pt_c, C);
     case 3 
         options = optimoptions('fmincon','Display','iter');
         lb=-pi*ones(7,1);
         ub=pi*ones(7,1);
-        [optimtheta,fval] = fmincon(@i_obj,ones(1,7)*(pi/2),[],[],[],[], ...
+        [optimtheta,fval] = fmincon(@i_obj,rand(1,7),[],[],[],[], ...
             lb,ub,[],options,pt_f, pt_c, C);        
 end
 
@@ -59,10 +60,11 @@ end
 C.Gates(1).Angles = optimtheta(1);
 C.Gates(2).Angles = optimtheta(2);
 C.Gates(3).Angles = optimtheta(3);
-C.Gates(7).Angles = optimtheta(4);
-C.Gates(8).Angles = optimtheta(5);
-C.Gates(9).Angles = optimtheta(6);
-C.Gates(10).Angles = optimtheta(7);
+
+C.Gates(7+3).Angles = optimtheta(4);
+C.Gates(8+3).Angles = optimtheta(5);
+C.Gates(9+3).Angles = optimtheta(6);
+C.Gates(10+3).Angles = optimtheta(7);
 
 
 S = simulate(C);    
@@ -73,7 +75,7 @@ S = simulate(C);
 
 function [y] = i_obj(theta, pt_f, pt_c, C)
     a1 = [1 2 3];
-    a2 = [7 8 9 10];
+    a2 = [7 8 9 10]+3;
     a = [a1 a2];
     for k = 1:length(a)
         C.Gates(a(k)).Angles = theta(k);
@@ -143,5 +145,7 @@ ylabel('# of cells');
 xlabel('Expression pattern');
 title('Fibroblasts')
 legend({'Observed','Simulated','Theoretical'})
+
+C.Gates
 
 
