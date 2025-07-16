@@ -13,20 +13,26 @@ genquery = CancerGenes;
 
 
 
-[layer_base] = in_12layers([f0_f]);
+% [layer_base] = in_12layers([f0_f]);
+    layer0 = [ryGate(1, 0.9395); ryGate(2, pi/4);...
+        ryGate(3, pi/6); ...
+        cxGate(1, 2); cxGate(2, 3); ...
+        cxGate(3, 1)];
 
 
     layer1 = [ryGate(4, 1.9395); ryGate(5, pi/4);...
         ryGate(6, pi/6); ryGate(7, pi/8);...
-        cxGate(4, 5); cxGate(5, 6); cxGate(6, 7)];
+        cxGate(4, 5); cxGate(5, 6); ...
+        cxGate(6, 7); cxGate(7, 4)];
 
     % layer2 = rxGate(1:n, zeros(n,1));
-    layer = [layer_base; layer1];
+    layer = [layer0; layer1];
 
 
 C = quantumCircuit(layer);
 
 figure;
+%{
 nexttile
 bar(pt_c)
 nexttile
@@ -35,7 +41,7 @@ nexttile
 bar(pt_f)
 nexttile
 bar(f0_f)
-
+%}
 nexttile
 plot(C)
 
