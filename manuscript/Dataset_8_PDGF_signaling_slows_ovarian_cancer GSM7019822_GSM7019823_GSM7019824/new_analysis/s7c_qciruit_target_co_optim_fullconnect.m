@@ -19,7 +19,8 @@ batquery = "Cancer Cells (Co)";
 genquery = CancerGenes;
 [pt_c_co, ~, ~, f0_c_co] = getn(batquery, genquery, sce, false);
 
-%%
+%% 
+% quantum state preparation via uniformly controlled rotations
 amp = sqrt(pt_f_mo);                % unnormalized amplitudes vector
 cg_f = initGate(1:3, amp);          % creates CompositeGate to initialize qubits 1–3 :contentReference[oaicite:1]{index=1}
 qc_f = quantumCircuit(cg_f);        % initialize circuit with the gate
