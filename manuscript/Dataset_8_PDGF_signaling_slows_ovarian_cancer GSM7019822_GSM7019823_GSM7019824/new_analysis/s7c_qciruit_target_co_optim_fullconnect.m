@@ -43,17 +43,34 @@ layer_entg = [cxGate(1, 2); cxGate(2, 3); cxGate(3, 1);...
     cxGate(4, 5); cxGate(5, 6); cxGate(6, 7);...
     cxGate(7, 4)];
 
-layer_inte = [cryGate(5,4,theta(1)); ...
-    cryGate(1,6,theta(2)); ...
-    cryGate(7,2,theta(3)); ...
-    cryGate(3,5,theta(4))];
+% layer_inte = [cryGate(5,4,theta(1)); ...
+%     cryGate(1,6,theta(2)); ...
+%     cryGate(7,2,theta(3)); ...
+%     cryGate(3,5,theta(4))];
 
-combinedGate = [cg1_mapped; cg2_mapped; layer_entg; layer_inte];
+
+layer_inte = [cryGate(1,4,0); cryGate(1,5,0); cryGate(1,6,0); cryGate(1,7,0);...
+    cryGate(2,4,0); cryGate(2,5,0); cryGate(2,6,0); cryGate(2,7,0);...
+    cryGate(3,4,0); cryGate(3,5,0); cryGate(3,6,0); cryGate(3,7,0);...
+    cryGate(4,1,0); cryGate(4,2,0); cryGate(4,3,0);...
+    cryGate(5,1,0); cryGate(5,2,0); cryGate(5,3,0);...
+    cryGate(6,1,0); cryGate(6,2,0); cryGate(6,3,0);...
+    cryGate(7,1,0); cryGate(7,2,0); cryGate(7,3,0)];
+
+
+[layer_base] = in_12layers([f0_f_mo; f0_c_mo]);
+
+
+% combinedGate = [cg1_mapped; cg2_mapped; layer_inte];
+
+combinedGate = [layer_base; layer_inte];
+
 
 C = quantumCircuit(combinedGate);
 
 n = size(layer_inte, 1);     % number of gates need parameters to be estimated
-inivalue = randn(n, 1);
+inivalue = -pi + (2*pi)*rand(n, 1);
+
 methodid = 3;
 switch methodid
     case 1
@@ -63,8 +80,8 @@ switch methodid
         options = optimset('Display','iter');
         [optimtheta, fval] = fminsearch(@i_obj, inivalue, options, pt_f_co, pt_c_co, C);
     case 3
-        options = optimoptions('fmincon','Display','iter','Algorithm','active-set');
-        lb=-pi*ones(n, 1); ub=pi*ones(n, 1);
+        options = optimoptions('fmincon','Display','iter');
+        lb = -pi*ones(n, 1); ub = pi*ones(n, 1);
         [optimtheta, fval] = fmincon(@i_obj, inivalue, [], [], [], [], ...
             lb, ub, [], options, pt_f_co, pt_c_co, C);
 end
@@ -75,12 +92,9 @@ S = simulate(C);
 [states_c, po_c_mo] = querystates(S,[4 5 6 7]);   % observed state pattern in cancer   
 
 
-% optimtheta = randn(4 ,1);
-% optimtheta = zeros(4 ,1);
-C.Gates(end).Angles = optimtheta(1);
-C.Gates(end-1).Angles = optimtheta(2);
-C.Gates(end-2).Angles = optimtheta(3);
-C.Gates(end-3).Angles = optimtheta(4);
+for k = 1:n
+    C.Gates(end-(k-1)).Angles = optimtheta(k);
+end
 
 S = simulate(C);
 [states_f2, po_f2] = querystates(S,[1 2 3]);     % observed state pattern in fibroblast
@@ -109,12 +123,19 @@ xlabel('Expression pattern');
 title('Fibroblasts')
 legend({'Mono','Co','Simulated2'})
 
-
 C.Gates
 
-    kl1 = i_kldiverg(pt_f_co, po_f2);
-    kl2 = i_kldiverg(pt_c_co, po_c2);
-    % y = 3*kl1/7 + 4*kl2/7;
-    y = kl1 + kl2;
-    fprintf('%f + %f = %f\n', kl1, kl2, y);
+interGates = C.Gates(end-(n-1):end);
+
+arrayfun(@(x) fprintf('\\theta_{%d,%d} = %.3f\n', ...
+    x.ControlQubits, x.TargetQubits, x.Angles), ...
+    interGates)
+
+M = zeros(3, 4);
+
+
+
+kl1 = i_kldiverg(pt_f_co, po_f2);
+kl2 = i_kldiverg(pt_c_co, po_c2);    
+fprintf('%f + %f = %f\n', kl1, kl2, kl1 + kl2);
 

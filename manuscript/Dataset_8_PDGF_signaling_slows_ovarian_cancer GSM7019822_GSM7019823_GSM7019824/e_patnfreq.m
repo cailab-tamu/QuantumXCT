@@ -15,12 +15,16 @@ function [probs] = e_patnfreq(P_B)
     end
     
     % Display results
+
+    %{
     disp('Probabilities of all combinations:');
     for i = 1:length(outcomes)
         fprintf('P(%s) = %.3f\n', outcomes{i}, probs(i));
     end
-    
+    %}
     % Verify sum of probabilities
-    sum_probs = sum(probs);
-    fprintf('Sum of probabilities = %.3f (should be 1)\n', sum_probs);
+    
+    % sum_probs = sum(probs);
+    
+    % fprintf('Sum of probabilities = %.3f (should be 1)\n', sum_probs);
 end
