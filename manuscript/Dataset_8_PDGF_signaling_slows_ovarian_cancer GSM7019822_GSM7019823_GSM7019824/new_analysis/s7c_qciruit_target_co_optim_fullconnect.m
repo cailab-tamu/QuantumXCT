@@ -58,7 +58,13 @@ layer_inte = [cryGate(1,4,0); cryGate(1,5,0); cryGate(1,6,0); cryGate(1,7,0);...
     cryGate(7,1,0); cryGate(7,2,0); cryGate(7,3,0)];
 
 
-combinedGate = [cg1_mapped; cg2_mapped; layer_inte];
+[layer_base] = in_12layers([f0_f_mo; f0_c_mo]);
+
+
+% combinedGate = [cg1_mapped; cg2_mapped; layer_inte];
+
+combinedGate = [layer_base; layer_inte];
+
 
 C = quantumCircuit(combinedGate);
 
@@ -74,7 +80,7 @@ switch methodid
         options = optimset('Display','iter');
         [optimtheta, fval] = fminsearch(@i_obj, inivalue, options, pt_f_co, pt_c_co, C);
     case 3
-        options = optimoptions('fmincon','Display','iter','Algorithm','active-set');
+        options = optimoptions('fmincon','Display','iter');
         lb = -pi*ones(n, 1); ub = pi*ones(n, 1);
         [optimtheta, fval] = fmincon(@i_obj, inivalue, [], [], [], [], ...
             lb, ub, [], options, pt_f_co, pt_c_co, C);
@@ -119,10 +125,15 @@ legend({'Mono','Co','Simulated2'})
 
 C.Gates
 
+interGates = C.Gates(end-(n-1):end);
 
 arrayfun(@(x) fprintf('\\theta_{%d,%d} = %.3f\n', ...
     x.ControlQubits, x.TargetQubits, x.Angles), ...
-    C.Gates(end-(n-1):end))
+    interGates)
+
+M = zeros(3, 4);
+
+
 
 kl1 = i_kldiverg(pt_f_co, po_f2);
 kl2 = i_kldiverg(pt_c_co, po_c2);    
