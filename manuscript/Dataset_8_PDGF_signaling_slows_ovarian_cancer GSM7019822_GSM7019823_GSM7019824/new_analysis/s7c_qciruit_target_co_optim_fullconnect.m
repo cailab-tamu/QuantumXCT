@@ -13,11 +13,11 @@ genquery = CancerGenes;
 
 batquery = "Fibroblasts (Co)";
 genquery = FibroblastGenes;
-[pt_f_co, ~, ~, f0_f_co] = getn(batquery, genquery, sce, false);
+[pt_f_co, ~, ~, ~] = getn(batquery, genquery, sce, false);
 
 batquery = "Cancer Cells (Co)";
 genquery = CancerGenes;
-[pt_c_co, ~, ~, f0_c_co] = getn(batquery, genquery, sce, false);
+[pt_c_co, ~, ~, ~] = getn(batquery, genquery, sce, false);
 
 %% 
 % quantum state preparation via uniformly controlled rotations
@@ -62,9 +62,9 @@ layer_inte = [cryGate(1,4,0); cryGate(1,5,0); cryGate(1,6,0); cryGate(1,7,0);...
 [layer_base] = in_12layers([f0_f_mo; f0_c_mo]);
 
 
-% combinedGate = [cg1_mapped; cg2_mapped; layer_inte];
+combinedGate = [cg1_mapped; cg2_mapped; layer_inte];
 
-combinedGate = [layer_base; layer_inte];
+%  combinedGate = [layer_base; layer_inte];
 
 
 C = quantumCircuit(combinedGate);
