@@ -50,10 +50,10 @@ counts = result.get_counts()
 measured_frequencies = np.zeros(16)
 total_shots = sum(counts.values())
 
+# Convert bitstring to integer (reverse bit order for standard indexing)
 for bitstring, count in counts.items():
-    # Convert bitstring to integer (reverse bit order for standard indexing)
     index = int(bitstring, 2)
-    measured_frequencies[index] = count / total_shots
+    measured_frequencies[index] = count / total_shots    
 
 print("\nComparison of target vs measured frequencies:")
 print("State | Target   | Measured | Difference")
@@ -99,6 +99,8 @@ ax3.legend()
 
 plt.tight_layout()
 plt.show()
+
+
 
 # Manual implementation using uniformly controlled rotations
 def create_state_preparation_manual(amplitudes):
