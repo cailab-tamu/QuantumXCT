@@ -40,14 +40,10 @@ print(f"\nQuantum Circuit (depth: {qc2.depth()}):")
 print(qc2)
 
 
-
-
-
-
-
 merged_circuit = qc1.tensor(qc2)  # or qc1 ^ qc2
 print(f"Merged circuit has {merged_circuit.num_qubits} qubits")  # Should be 7
 
 print(qc1)
 
 merged_circuit = qc1 ^ qc2
+
