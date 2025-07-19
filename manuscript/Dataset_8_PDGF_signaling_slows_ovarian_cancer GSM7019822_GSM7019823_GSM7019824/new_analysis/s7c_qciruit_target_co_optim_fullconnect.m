@@ -19,6 +19,7 @@ batquery = "Cancer Cells (Co)";
 genquery = CancerGenes;
 [pt_c_co, ~, ~, ~] = getn(batquery, genquery, sce, false);
 
+return;
 %% 
 % quantum state preparation via uniformly controlled rotations
 amp = sqrt(pt_f_mo);                % unnormalized amplitudes vector
