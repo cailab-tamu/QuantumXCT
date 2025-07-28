@@ -2,9 +2,8 @@ name: qiskit-env
 
 channels:
   - conda-forge
-  - pytorch
 dependencies:
-  - python=3.11
+  - python=3.10
   - numpy=1.26.4
   - leidenalg
   - igraph
@@ -13,16 +12,15 @@ dependencies:
   - pandas
   - matplotlib
   - scikit-learn
-  - qiskit=1.3
+  - qiskit=2.1
   - qiskit-ibm-runtime
-  - qiskit[visualization]
   - ipykernel
-  - pytorch 
-  - torchvision 
-  - torchaudio
-  - pylatexenc
   - ipywidgets
+  - jupyter
+  - notebook
+  - pylatexenc    # Recommended for some Qiskit visualizations
+  - tk            # Recommended for some Qiskit visualizations
+  - Pillow  
   - pip
   - pip:
-    - magic-imputation
     - qiskit_aer
