@@ -23,22 +23,18 @@ genquery = CancerGenes;
 %% 
 % quantum state preparation via uniformly controlled rotations
 amp = sqrt(pt_f_mo);                % unnormalized amplitudes vector
-cg_f = initGate(1:3, amp);          % creates CompositeGate to initialize qubits 1–3 :contentReference[oaicite:1]{index=1}
-qc_f = quantumCircuit(cg_f);        % initialize circuit with the gate
-s_f = simulate(qc_f);                % simulate starting from |000>
-[states_f, po_f_mo] = querystates(s_f, [1 2 3]); 
+cg_f1 = initGate(1:3, amp);          % creates CompositeGate to initialize qubits 1–3 :contentReference[oaicite:1]{index=1}
 
 amp = sqrt(pt_c_mo);               % unnormalized amplitudes vector
-cg_c = initGate(1:4, amp);         % creates CompositeGate to initialize qubits 1–3 :contentReference[oaicite:1]{index=1}
-qc_c = quantumCircuit(cg_c);         % initialize circuit with the gate
-s_c = simulate(qc_c);                % simulate starting from |000>
-[states_c, po_c_mo] = querystates(s_c, [1 2 3 4]); 
+cg_c1 = initGate(1:4, amp);         % creates CompositeGate to initialize qubits 1–3 :contentReference[oaicite:1]{index=1}
 
+amp = sqrt(pt_f_co);                % unnormalized amplitudes vector
+cg_f2 = initGate(1:3, amp);          % creates CompositeGate to initialize qubits 1–3 :contentReference[oaicite:1]{index=1}
+
+amp = sqrt(pt_c_co);               % unnormalized amplitudes vector
+cg_c2 = initGate(1:4, amp);         % creates CompositeGate to initialize qubits 1–3 :contentReference[oaicite:1]{index=1}
 
 %%
-cg1_mapped = compositeGate(cg_f, [1 2 3]);
-cg2_mapped = compositeGate(cg_c, [4 5 6 7]);
-
 
 layer_entg = [cxGate(1, 2); cxGate(2, 3); cxGate(3, 1);...
     cxGate(4, 5); cxGate(5, 6); cxGate(6, 7);...
@@ -62,37 +58,44 @@ else
             cryGate(3,5,0)];
 end
 
+% [layer_base] = in_12layers([f0_f_mo; f0_c_mo]);
 
-[layer_base] = in_12layers([f0_f_mo; f0_c_mo]);
+cg1_mapped = compositeGate(cg_f1, [1 2 3]);
+cg2_mapped = compositeGate(cg_c1, [4 5 6 7]);
+cg3_mapped = compositeGate(cg_f2, [1 2 3]);
+cg4_mapped = compositeGate(cg_c2, [4 5 6 7]);
 
+combinedGateF = [cg1_mapped; cg2_mapped; layer_inte];
+combinedGateR = [cg3_mapped; cg4_mapped; layer_inte];
 
-combinedGate = [cg1_mapped; cg2_mapped; layer_inte];
+% combinedGate = [layer_base; layer_inte];
 
-%  combinedGate = [layer_base; layer_inte];
+CF = quantumCircuit(combinedGateF);
+CR = quantumCircuit(combinedGateR);
 
-
-C = quantumCircuit(combinedGate);
 
 n = size(layer_inte, 1);     % number of gates need parameters to be estimated
 inivalue = -pi + (2*pi)*rand(n, 1);
 
-methodid = 3;
+methodid = 2;
 switch methodid
     case 1
         options = optimset('Display','iter');
-        [optimtheta, fval] = fminunc(@i_obj, inivalue, options, pt_f_co, pt_c_co, C);       
+        [optimtheta, fval] = fminunc(@i_obj_bidir, inivalue, options, {pt_f_co, pt_f_mo}, {pt_c_co, pt_c_mo}, {CF,CR});
     case 2
         options = optimset('Display','iter');
-        [optimtheta, fval] = fminsearch(@i_obj, inivalue, options, pt_f_co, pt_c_co, C);
+        [optimtheta, fval] = fminsearch(@i_obj_bidir, inivalue, options, {pt_f_co, pt_f_mo}, {pt_c_co, pt_c_mo}, {CF,CR});
     case 3
         options = optimoptions('fmincon','Display','iter');
         lb = -pi*ones(n, 1); ub = pi*ones(n, 1);
-        [optimtheta, fval] = fmincon(@i_obj, inivalue, [], [], [], [], ...
-            lb, ub, [], options, pt_f_co, pt_c_co, C);
+        [optimtheta, fval] = fmincon(@i_obj_bidir, inivalue, [], [], [], [], ...
+            lb, ub, [], options, {pt_f_co, pt_f_mo}, {pt_c_co, pt_c_mo}, {CF,CR});
 end
 
 
-S = simulate(C);    
+C = CF;
+
+S = simulate(C);
 [states_f, po_f_mo] = querystates(S,[1 2 3]);     % observed state pattern in fibroblast
 [states_c, po_c_mo] = querystates(S,[4 5 6 7]);   % observed state pattern in cancer   
 
