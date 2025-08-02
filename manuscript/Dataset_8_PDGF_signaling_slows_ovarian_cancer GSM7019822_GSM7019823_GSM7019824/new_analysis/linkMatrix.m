@@ -28,5 +28,5 @@ for idx = 0:numComb-1
     
     % Uncomment below to display the matrix as well
     % disp(linkmat);
-    % pause
+    pause
 end
