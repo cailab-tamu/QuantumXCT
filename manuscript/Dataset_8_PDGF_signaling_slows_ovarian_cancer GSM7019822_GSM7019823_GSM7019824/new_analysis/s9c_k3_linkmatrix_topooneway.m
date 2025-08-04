@@ -44,13 +44,17 @@ S = simulate(C);
 % [layer_base] = in_12layers([f0_f_mo; f0_c_mo]);
 
 %%
-configsK = linkMatrix_dir_k(4);
+configsK = linkMatrix_dir_k(3);
 numComb = length(configsK);
 
 Y = nan(numComb, 1);
 Cc = cell(numComb, 1);
 
 for idx = 1:numComb
+
+
+    if any(ismember(fliplr(configsK{idx}), configsK{idx}, "rows")), continue; end    
+
     layer_inte = [];
     for k = 1:height(configsK{idx})
         layer_inte = [layer_inte; cxGate(configsK{idx}(k,1), configsK{idx}(k,2))];
@@ -68,7 +72,7 @@ for idx = 1:numComb
 end
 
 %%
-[a, b] = mink(Y,10)
+[a, b] = mink(Y, 10);
 figure;
 plot(Y);
 
@@ -77,7 +81,7 @@ CancerGenes = ["STAT3","IL6RorST","TGFBR1or2","PDGFB"];
 FCGenes = [FibroblastGenes CancerGenes];
 
 
-for topk = 1:3
+for topk = 1:1
 
 
     C = Cc{b(topk)};
