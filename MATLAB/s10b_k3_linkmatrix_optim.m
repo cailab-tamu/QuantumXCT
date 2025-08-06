@@ -76,7 +76,7 @@ for idx = 1:numComb
 
     layer_inte = [];
     for k = 1:height(configsK{idx})
-        layer_inte = [layer_inte; cryGate(configsK{idx}(k,1), configsK{idx}(k,2), 0)];
+        layer_inte = [layer_inte; crxGate(configsK{idx}(k,1), configsK{idx}(k,2), 0)];
     end
     % combinedGate = [cg1_mapped; cg2_mapped; cxGate(5, 4); layer_inte1; layer_inte];
     combinedGate = [cg1_mapped; cg2_mapped; cxGate(4, 5); layer_inte];
@@ -88,9 +88,10 @@ for idx = 1:numComb
     reptheta = zeros(n, 100);
     repfuval = zeros(100, 1);
 
-    for repidx = 1:100
+    for repidx = 1:10
         repidx
-        inivalue = -pi + (2*pi)*rand(n, 1);
+        inivalue = pi*ones(n, 1);
+        % inivalue = -pi + (2*pi)*rand(n, 1);
         methodid = 2;
         switch methodid
             case 1
