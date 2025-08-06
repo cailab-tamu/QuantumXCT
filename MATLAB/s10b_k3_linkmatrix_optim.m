@@ -54,7 +54,8 @@ S = simulate(C);
 % [layer_base] = in_12layers([f0_f_mo; f0_c_mo]);
 
 %%
-configsK = hlp.linkMatrix_dir_k(3);
+% configsK = hlp.linkMatrix_dir_k(3);
+configsK = {targettop};
 numComb = length(configsK);
 
 Y = nan(numComb, 1);
@@ -71,35 +72,47 @@ for idx = 1:numComb
     % for k = 1:height(configsK{idx})
     %     layer_inte1 = [layer_inte1; cxGate(configsK{idx}(k,1), configsK{idx}(k,2))];
     % end
-    layer_inte1 = [cxGate(7,2); cxGate(1,6); cxGate(3,5)];
+    % layer_inte1 = [cxGate(7,2); cxGate(1,6); cxGate(3,5)];
 
     layer_inte = [];
     for k = 1:height(configsK{idx})
         layer_inte = [layer_inte; cryGate(configsK{idx}(k,1), configsK{idx}(k,2), 0)];
     end
     % combinedGate = [cg1_mapped; cg2_mapped; cxGate(5, 4); layer_inte1; layer_inte];
-    combinedGate = [cg1_mapped; cg2_mapped; cxGate(4, 5); layer_inte1; layer_inte];
+    combinedGate = [cg1_mapped; cg2_mapped; cxGate(4, 5); layer_inte];
 
 
     n = size(layer_inte, 1);             % number of gates need parameters to be estimated
-    inivalue = -pi + (2*pi)*rand(n, 1);
-
     C = quantumCircuit(combinedGate);
 
-    methodid = 3;
-    switch methodid
-        case 1
-            options = optimset('Display','none');
-            [optimtheta, fval] = fminunc(@hlp.i_obj, inivalue, options, pt_f_co, pt_c_co, C);       
-        case 2
-            options = optimset('Display','none');
-            [optimtheta, fval] = fminsearch(@hlp.i_obj, inivalue, options, pt_f_co, pt_c_co, C);
-        case 3
-            options = optimoptions('fmincon','Display','none');
-            lb = -pi*ones(n, 1); ub = pi*ones(n, 1);
-            [optimtheta, fval] = fmincon(@hlp.i_obj, inivalue, [], [], [], [], ...
-                lb, ub, [], options, pt_f_co, pt_c_co, C);
+    reptheta = zeros(n, 100);
+    repfuval = zeros(100, 1);
+
+    for repidx = 1:100
+        repidx
+        inivalue = -pi + (2*pi)*rand(n, 1);
+        methodid = 2;
+        switch methodid
+            case 1
+                options = optimset('Display','none');
+                [optimtheta, fval] = fminunc(@hlp.i_obj, inivalue, options, pt_f_co, pt_c_co, C);       
+            case 2
+                options = optimset('Display','none');
+                [optimtheta, fval] = fminsearch(@hlp.i_obj, inivalue, options, pt_f_co, pt_c_co, C);
+            case 3
+                options = optimoptions('fmincon','Display','none');
+                lb = -pi*ones(n, 1); ub = pi*ones(n, 1);
+                [optimtheta, fval] = fmincon(@hlp.i_obj, inivalue, [], [], [], [], ...
+                    lb, ub, [], options, pt_f_co, pt_c_co, C);
+        end
+        reptheta(:, repidx) = optimtheta;
+        repfuval(repidx) = fval;
+
     end
+    
+
+    [~,ix] = min(repfuval);
+    optimtheta = reptheta(:, ix);
 
     for k = 1:n
         C.Gates(end-(k-1)).Angles = optimtheta(k);
@@ -124,19 +137,27 @@ end
 
 %%
 [a, b] = mink(Y, 10);
-figure;
-plot(Y);
-yline(idealY,'r');
+figure; 
+plot(repfuval)
+ylabel('Cost fun value');
+
+figure; 
+plot(reptheta')
+ylabel('theta values');
+
+%plot(Y);
+%yline(idealY,'r');
 
 
 
 %%
-for topk = 1:3
+for topk = 1:1
     t = hlp.fun_drawreshisto(b(topk), Cc, configsK, ...
         pt_c_mo, pt_c_co, pt_f_mo, pt_f_co, ...
         FCGenes, states_c, states_f, targettop);
     title(t, sprintf('Numerically Best Configuration %d, KL = %f', ...
         topk, Y(b(topk))));
+    subtitle(t, sprintf('%.2f   ', optimtheta))
 end
 
 %%
