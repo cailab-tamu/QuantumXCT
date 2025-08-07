@@ -113,8 +113,8 @@ for idx = 1:numComb
     [states_f2, po_f] = querystates(S,[1 2 3]);     % observed state pattern in fibroblast
     [states_c2, po_c] = querystates(S,[4 5 6 7]);   % observed state pattern in cancer       
     
-    kl1 = hlp.i_kldiverg(pt_f_co, po_f, true);
-    kl2 = hlp.i_kldiverg(pt_c_co, po_c, true);
+    kl1 = hlp.i_kldiverg(pt_f_co, po_f);
+    kl2 = hlp.i_kldiverg(pt_c_co, po_c);
     Y(idx) = kl1 + kl2;
     fprintf('Combination %d: %f\n', idx, Y(idx));
     if all(ismember(sort(configsK{idx},2), sort(targettop, 2),"rows"))
