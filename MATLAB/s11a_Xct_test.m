@@ -25,8 +25,21 @@ batquery = "Cancer Cells (Co)"; genquery = CancerGenes;
 [pt_c_co, X_c_co, ~, ~] = hlp.getn(batquery, genquery, sce, false, true);
 
 %%
-idx = ismember(sce.g, FCGenes);
-sce.g = sce.g(idx);
-sce.X = sce.X(idx, :);
+% idx = ismember(sce.g, FCGenes);
+% sce.g = sce.g(idx);
+% sce.X = sce.X(idx, :);
 
 scgeatoolApp(sce)
+
+[y, idx]=ismember(sce1.c_cell_id, sce.c_cell_id);
+assert(all(y))
+assert(isequal(sce.c_cell_id(idx), sce1.c_cell_id))
+ix = sce1.g=="IL6RorST";
+sce1.X = [sce1.X; sce.X(ix, idx)];
+sce1.g = [sce1.g; "IL6RorST"];
+idx = ismember(sce1.g, FCGenes);
+assert(sum(idx)==7)
+
+
+
+
