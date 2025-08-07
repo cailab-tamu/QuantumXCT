@@ -1,9 +1,16 @@
-function [n, X, n_expected, f0obs] = getn(batquery, genquery, sce, plotit)
-    if nargin<4, plotit = true; end
+function [n, X, n_expected, f0obs] = getn(batquery, genquery, sce, plotit, realx)
+if nargin<5, realx = false; end
+if nargin<4, plotit = true; end
+
     idxc = sce.c_batch_id == batquery;
     [y, idxg] = ismember(genquery, sce.g);
     assert(all(y))
-    X = 0+(sce.X(idxg, idxc)>0);
+    if ~realx
+        X = 0+(sce.X(idxg, idxc)>0);
+    else
+        X = sce.X(idxg, idxc);
+    end
+    
     f0obs = sum(X,2)./size(X,2);
     n_expected = e_patnfreq(f0obs);
     n = frebar(X, batquery+" - "+strtrim(sprintf("%s, ",genquery)), plotit);
