@@ -1,5 +1,4 @@
-% improved by adding intracellular link between ["STAT3","IL6RorST"] see
-% line 63
+
 import hlp.*
 a = pwd;
 targettop = [7 2; 1 6; 3 5];
