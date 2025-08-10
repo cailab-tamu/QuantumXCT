@@ -71,7 +71,7 @@ for idx = 1:numComb
     for k = 1:height(configsK{idx})
         layer_inte = [layer_inte; cxGate(configsK{idx}(k,1), configsK{idx}(k,2))];
     end
-    combinedGate = [cg1_mapped; cg2_mapped; cxGate(4, 5); layer_inte];
+    combinedGate = [cg1_mapped; cg2_mapped; cxGate(4, 5);  layer_inte];
     C = quantumCircuit(combinedGate);
     Cc{idx} = C;
     S = simulate(C);
