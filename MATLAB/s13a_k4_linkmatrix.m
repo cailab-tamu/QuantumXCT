@@ -53,7 +53,7 @@ S = simulate(C);
 % [layer_base] = in_12layers([f0_f_mo; f0_c_mo]);
 
 %%
-configsK = hlp.linkMatrix_dir_k(3);
+configsK = hlp.linkMatrix_dir_k(4);
 numComb = length(configsK);
 
 Y = nan(numComb, 1);
@@ -80,7 +80,7 @@ for idx = 1:numComb
     kl2 = i_kldiverg(pt_c_co, po_c);
     Y(idx) = kl1 + kl2;
     fprintf('Combination %d: %f\n', idx, Y(idx));
-    if all(ismember(sort(configsK{idx},2), sort(targettop, 2),"rows"))
+    if sum(ismember(sort(configsK{idx},2), sort(targettop, 2),"rows"))>=3
         idealY = [idealY; Y(idx)];
         isideal(idx) = true;
     end
@@ -119,7 +119,7 @@ end
 [idealY_sorted, idx] = sort(idealY);
 a = find(isideal);
 a = a(idx);
-for topk = 1:length(a)
+for topk = 1:3  % length(a)
     t = hlp.fun_drawreshisto(a(topk), Cc, configsK, ...
         pt_c_mo, pt_c_co, pt_f_mo, pt_f_co, ...
         FCGenes, states_c, states_f, targettop);

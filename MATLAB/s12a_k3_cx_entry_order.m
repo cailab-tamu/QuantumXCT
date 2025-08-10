@@ -133,3 +133,14 @@ for pid = 1:height(permidx)
 
 end
 figure; plot(IdealY');
+
+
+
+a1 =  quantumCircuit([cxGate(1,2); cxGate(3,4); cxGate(2,4)]);
+a2 =  quantumCircuit([cxGate(3,4); cxGate(2,4); cxGate(1,2)]);
+isequal(a1.getMatrix, a2.getMatrix)
+
+
+a1 =  quantumCircuit([cxGate(1,5); cxGate(3,4); cxGate(2,6)]);
+a2 =  quantumCircuit([cxGate(3,4); cxGate(1,5); cxGate(2,6)]);
+isequal(a1.getMatrix, a2.getMatrix)
