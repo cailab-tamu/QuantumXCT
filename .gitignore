@@ -6,6 +6,8 @@ __pycache__/
 # C extensions
 *.so
 
+*.asv
+
 # Distribution / packaging
 .Python
 build/
@@ -170,3 +172,5 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 manuscript/Dataset_8_PDGF_signaling_slows_ovarian_cancer GSM7019822_GSM7019823_GSM7019824/co_fibroblast_network_file.mat
+
+
