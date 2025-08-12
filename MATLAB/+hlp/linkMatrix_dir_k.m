@@ -1,13 +1,13 @@
-function configsK = linkMatrix_dir_k(k)
+function configsK = linkMatrix_dir_k(k,bag1,bag2)
 
 if nargin<1, k = 3; end
 
 % Define items in each bag:
-bag1 = {'A','B','C'};    % 3 items
-bag2 = {'1','2','3','4'}; % 4 items
+%bag1 = {'A','B','C'};    % 3 items
+%bag2 = {'1','2','3','4'}; % 4 items
 
-bag1 = {1,2,3};    % 3 items
-bag2 = {4,5,6,7}; % 4 items
+if nargin<2, bag1 = {1,2,3};   end % 3 item
+if nargin<3, bag2 = {4,5,6,7}; end % 4 items
 
 % Build full list of directional links (24 total):
 dirs = cell(numel(bag1) * numel(bag2) * 2, 2);

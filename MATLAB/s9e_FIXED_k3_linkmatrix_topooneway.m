@@ -53,7 +53,7 @@ S = simulate(C);
 % [layer_base] = in_12layers([f0_f_mo; f0_c_mo]);
 
 %%
-configsK = hlp.linkMatrix_dir_k(3);
+configsK = hlp.linkMatrix_dir_k(3, num2cell(1:3), num2cell(4:7));
 numComb = length(configsK);
 
 Y = nan(numComb, 1);
@@ -64,7 +64,7 @@ isideal = false(numComb, 1);
 for idx = 1:numComb
 
     if any(ismember(fliplr(configsK{idx}), configsK{idx}, "rows")), continue; end
-    if length(unique(configsK{idx}))<6, continue; end
+    %if length(unique(configsK{idx}))<6, continue; end
 
     layer_inte = [];
     for k = 1:height(configsK{idx})
