@@ -1,4 +1,5 @@
 function [n, X, n_expected, f0obs] = getn(batquery, genquery, sce, plotit, realx)
+
 if nargin<5, realx = false; end
 if nargin<4, plotit = true; end
 
@@ -12,7 +13,7 @@ if nargin<4, plotit = true; end
     end
     
     f0obs = sum(X,2)./size(X,2);
-    n_expected = e_patnfreq(f0obs);
+    n_expected = hlp.e_patnfreq(f0obs);
     n = frebar(X, batquery+" - "+strtrim(sprintf("%s, ",genquery)), plotit);
     % n = n./sum(n);
 end
@@ -21,10 +22,10 @@ function [n]=frebar(X, titx, plotit)
 
     if nargin<3, plotit = true; end
     f0obs = sum(X,2)./size(X,2);
-    n_expected = e_patnfreq(f0obs);
+    n_expected = hlp.e_patnfreq(f0obs);
 
     % [M]=qtm.permn([0 1],size(X,1));
-    [M] = permn([0 1], size(X,1));
+    [M] = hlp.permn([0 1], size(X,1));
     y=0+(X>0).';
     [~,idx]=ismember(y,M,'rows');
     t=tabulate(idx);

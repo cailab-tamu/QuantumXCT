@@ -1,6 +1,6 @@
 function [kl]=i_kldiverg(pt,po,rm0)
 
-    if nargin<3, rm0=false; end   % remove all-zero state or not
+    if nargin<3, rm0 = false; end   % remove all-zero state or not
 
     if rm0
         %disp('000 removed.')

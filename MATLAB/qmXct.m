@@ -67,8 +67,8 @@ function qmXct(sce, CellType1Genes, CellType2Genes, tags, targettoplinkers, K, e
         S = simulate(C);
         [~, po_f] = querystates(S,1:n1);         % observed state pattern in fibroblast
         [~, po_c] = querystates(S,n1+1:n1+n2);   % observed state pattern in cancer   
-        kl1 = i_kldiverg(pt_f_co, po_f);
-        kl2 = i_kldiverg(pt_c_co, po_c);
+        kl1 = hlp.i_kldiverg(pt_f_co, po_f);
+        kl2 = hlp.i_kldiverg(pt_c_co, po_c);
         Y(idx) = kl1 + kl2;
         fprintf('Combination %d: %f\n', idx, Y(idx));
         
