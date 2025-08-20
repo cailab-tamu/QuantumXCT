@@ -5,8 +5,8 @@ function t = fun_drawreshisto(topk, Cc, configsK, ...
     C = Cc{topk};
     S = simulate(C);
 
-    n1=log2(length(pt_c_mo));
-    n2=log2(length(pt_f_mo));
+    n1=log2(length(pt_f_mo));
+    n2=log2(length(pt_c_mo));
     [states_f2, po_f2] = querystates(S,1:n1);         % observed state pattern in fibroblast
     [states_c2, po_c2] = querystates(S,n1+1:n1+n2);   % observed state pattern in cancer   
     
@@ -34,12 +34,18 @@ function t = fun_drawreshisto(topk, Cc, configsK, ...
     %text(0, 50 - k*10 - 20, '[7->2; 1->6; 3->5; 5->4]');
     
     nexttile
-    bar([pt_f_mo pt_f_co po_f2])
-    set(gca,'XTick',1:length(states_f));
-    set(gca,'XTickLabel',states_f);
-    ylabel('Freq. of cells');
-    xlabel('Expression pattern');
-    title('Cell Type 1')
+    % pt_f_mo'
+    % pt_f_co'
+    % po_f2'
+
+    if isequal(size(pt_f_mo), size(pt_f_co)) && isequal(size(pt_f_mo), size(po_f2))
+        bar([pt_f_mo pt_f_co po_f2])
+        set(gca,'XTick',1:length(states_f));
+        set(gca,'XTickLabel',states_f);
+        ylabel('Freq. of cells');
+        xlabel('Expression pattern');
+        title('Cell Type 1')
+    end
 
     nexttile
     bar([pt_c_mo pt_c_co po_c2])

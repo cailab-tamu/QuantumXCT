@@ -1,7 +1,10 @@
-function qmXct(sce, CellType1Genes, CellType2Genes, tags, targettoplinkers, K, extragates)
+function [Y, configsK] = qmXct(sce, CellType1Genes, CellType2Genes, grptags, ...
+    targettoplinkers, K, extragates, allowcrosslink)
 
+     Y=[]; configsK=[];
     if nargin < 6, K = 3; end
     if nargin < 7, extragates = []; end
+    if nargin < 8, allowcrosslink = true; end
     
     % targettoplinkers = [7 2; 1 6; 3 5];
     % CellType1Genes = ["TGFB1", "PDGFRB", "IL6"];
@@ -17,11 +20,11 @@ function qmXct(sce, CellType1Genes, CellType2Genes, tags, targettoplinkers, K, e
     %    "Mo_GSM8882017Cardiomyocytes"
     %    "Mo_GSM8882017Epicardial cells"
     
-    [pt_f_mo, ~, ~, ~] = hlp.getn(tags(1), CellType1Genes, sce, false);
-    [pt_c_mo, ~, ~, ~] = hlp.getn(tags(2), CellType2Genes, sce, false);
-    [pt_f_co, ~, ~, ~] = hlp.getn(tags(3), CellType1Genes, sce, false);
-    [pt_c_co, ~, ~, ~] = hlp.getn(tags(4), CellType2Genes, sce, false);
-     
+    [pt_f_mo, ~, ~, ~] = hlp.getn(grptags(1), CellType1Genes, sce, false);
+    [pt_c_mo, ~, ~, ~] = hlp.getn(grptags(2), CellType2Genes, sce, false);
+    [pt_f_co, ~, ~, ~] = hlp.getn(grptags(3), CellType1Genes, sce, false);
+    [pt_c_co, ~, ~, ~] = hlp.getn(grptags(4), CellType2Genes, sce, false);
+    
     n1 = log2(numel(pt_f_mo));
     cg_1 = initGate(1:n1, sqrt(pt_f_mo));   % creates CompositeGate to initialize qubits 1–3 :contentReference[oaicite:1]{index=1}
     n2 = log2(numel(pt_c_mo));
@@ -34,12 +37,25 @@ function qmXct(sce, CellType1Genes, CellType2Genes, tags, targettoplinkers, K, e
     
     C = quantumCircuit(combinedGate);
     S = simulate(C);
-    [states_f, po_f_mo] = querystates(S,1:n1);
-    [states_c, po_c_mo] = querystates(S,n1+1:n1+n2);
+    [states_f, po_f_mo] = querystates(S,1:n1, Threshold="none");
+    [states_c, po_c_mo] = querystates(S,n1+1:n1+n2, Threshold="none");
+
+    kl1 = hlp.i_kldiverg(pt_f_mo, pt_f_co);
+    kl2 = hlp.i_kldiverg(pt_c_mo, pt_c_co);
     
+    figure;
+    nexttile
+    bar([pt_f_mo po_f_mo pt_f_co])
+    title(sprintf('Cell Type 1, KL = %.2f', kl1));
+    xlabel(sprintf('%s ', CellType1Genes))
+    nexttile
+    bar([pt_c_mo po_c_mo pt_c_co])
+    title(sprintf('Cell Type 2, KL = %.2f', kl2));
+    xlabel(sprintf('%s ', CellType2Genes))
+
     %%
     bag1 = num2cell(1:n1);
-    bag2 = num2cell(n1+1:n1+n2);
+    bag2 = num2cell(n1+1:n1+n2);    
     configsK = hlp.linkMatrix_dir_k(K, bag1, bag2);
     numComb = length(configsK);
     
@@ -50,7 +66,9 @@ function qmXct(sce, CellType1Genes, CellType2Genes, tags, targettoplinkers, K, e
     
     for idx = 1:numComb
         if any(ismember(fliplr(configsK{idx}), configsK{idx}, "rows")), continue; end
-        % if length(unique(configsK{idx}))<6, continue; end
+        if ~allowcrosslink
+            if length(unique(configsK{idx}))< 2*K, continue; end
+        end
         layer_inte = [];
         for k = 1:height(configsK{idx})
             layer_inte = [layer_inte; cxGate(configsK{idx}(k,1), configsK{idx}(k,2))];
@@ -65,14 +83,14 @@ function qmXct(sce, CellType1Genes, CellType2Genes, tags, targettoplinkers, K, e
         C = quantumCircuit(combinedGate);
         Cc{idx} = C;
         S = simulate(C);
-        [~, po_f] = querystates(S,1:n1);         % observed state pattern in fibroblast
-        [~, po_c] = querystates(S,n1+1:n1+n2);   % observed state pattern in cancer   
+        [~, po_f] = querystates(S,1:n1, Threshold="none");         % observed state pattern in fibroblast
+        [~, po_c] = querystates(S,n1+1:n1+n2, Threshold="none");   % observed state pattern in cancer   
         kl1 = hlp.i_kldiverg(pt_f_co, po_f);
         kl2 = hlp.i_kldiverg(pt_c_co, po_c);
         Y(idx) = kl1 + kl2;
         fprintf('Combination %d: %f\n', idx, Y(idx));
         
-        if all(ismember(sort(configsK{idx},2), sort(targettoplinkers, 2),"rows"))
+        if all(ismember(sort(configsK{idx}, 2), sort(targettoplinkers, 2),"rows"))
             idealY = [idealY; Y(idx)];
             isideal(idx) = true;
         end
@@ -89,7 +107,7 @@ function qmXct(sce, CellType1Genes, CellType2Genes, tags, targettoplinkers, K, e
             pt_c_mo, pt_c_co, pt_f_mo, pt_f_co, ...
             T1T2Genes, states_c, states_f, targettoplinkers);
         title(t, sprintf('Numerically Best Configuration %d, KL = %f', ...
-            topk, Y(b(topk))));
+            topk, Y(b(topk))),'Color','r');
     end
     
     [idealY_sorted, idx] = sort(idealY);
@@ -100,7 +118,7 @@ function qmXct(sce, CellType1Genes, CellType2Genes, tags, targettoplinkers, K, e
             pt_c_mo, pt_c_co, pt_f_mo, pt_f_co, ...
             T1T2Genes, states_c, states_f, targettoplinkers);
         title(t, sprintf('Biologically Ideal Configuration %d, KL = %f', ...
-            topk, idealY_sorted(topk)));
+            topk, idealY_sorted(topk)),'Color','g');
     end
 
 end
