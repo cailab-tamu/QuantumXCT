@@ -1,7 +1,7 @@
-function [Y, configsK] = qmXct(sce, CellType1Genes, CellType2Genes, grptags, ...
+function [Y, configsK] = qmXct_v2(sce, CellType1Genes, CellType2Genes, grptags, ...
     targettoplinkers, K, extragates, allowcrosslink)
 
-     Y=[]; configsK=[];
+    Y=[]; configsK=[];
     if nargin < 6, K = 3; end
     if nargin < 7, extragates = []; end
     if nargin < 8, allowcrosslink = true; end
@@ -29,12 +29,28 @@ function [Y, configsK] = qmXct(sce, CellType1Genes, CellType2Genes, grptags, ...
     cg_1 = initGate(1:n1, sqrt(pt_f_mo));   % creates CompositeGate to initialize qubits 1–3 :contentReference[oaicite:1]{index=1}
     n2 = log2(numel(pt_c_mo));
     cg_2 = initGate(1:n2, sqrt(pt_c_mo));   % creates CompositeGate to initialize qubits 1–4 :contentReference[oaicite:1]{index=1}
+
+
     
+    n3 = log2(numel(pt_f_co));
+    assert(n1==n3);
+    cg_3 = initGate(1:n3, sqrt(pt_f_co));   % creates CompositeGate to initialize qubits 1–3 :contentReference[oaicite:1]{index=1}
+    
+
+    n4 = log2(numel(pt_c_co));
+    assert(n2==n4);
+    cg_4 = initGate(1:n4, sqrt(pt_c_co));   % creates CompositeGate to initialize qubits 1–4 :contentReference[oaicite:1]{index=1}
+
+
     %%
     cg1_mapped = compositeGate(cg_1, 1:n1);
     cg2_mapped = compositeGate(cg_2, n1+1:n1+n2);
     combinedGate = [cg1_mapped; cg2_mapped];
-    
+
+    cg3_mapped = compositeGate(cg_3, 1:n1);
+    cg4_mapped = compositeGate(cg_4, n1+1:n1+n2);
+    % combinedGate2 = [cg3_mapped; cg4_mapped];
+
     C = quantumCircuit(combinedGate);
     S = simulate(C);
     [states_f, po_f_mo] = querystates(S,1:n1, Threshold="none");
@@ -75,9 +91,9 @@ function [Y, configsK] = qmXct(sce, CellType1Genes, CellType2Genes, grptags, ...
         end
     
         if ~isempty(extragates)
-            combinedGate = [cg1_mapped; cg2_mapped; extragates; layer_inte];
+            combinedGate = [cg1_mapped; cg2_mapped; extragates; layer_inte; cg3_mapped; cg4_mapped];
         else
-            combinedGate = [cg1_mapped; cg2_mapped; layer_inte];
+            combinedGate = [cg1_mapped; cg2_mapped; layer_inte; cg3_mapped; cg4_mapped];
         end
     
         C = quantumCircuit(combinedGate);
@@ -85,8 +101,8 @@ function [Y, configsK] = qmXct(sce, CellType1Genes, CellType2Genes, grptags, ...
         S = simulate(C);
         [~, po_f] = querystates(S,1:n1, Threshold="none");         % observed state pattern in fibroblast
         [~, po_c] = querystates(S,n1+1:n1+n2, Threshold="none");   % observed state pattern in cancer   
-        kl1 = hlp.i_kldiverg(pt_f_co, po_f, true);
-        kl2 = hlp.i_kldiverg(pt_c_co, po_c, true);
+        kl1 = hlp.i_kldiverg(pt_f_co, po_f);
+        kl2 = hlp.i_kldiverg(pt_c_co, po_c);
         Y(idx) = kl1 + kl2;
         fprintf('Combination %d: %f\n', idx, Y(idx));
         
