@@ -101,6 +101,7 @@ cellchat_Co <- readRDS("cellchat_Co.rds")
 
 df <- as.data.frame(cellchat_Co@LR$LRsig)
 df
+cellchat_merged <- mergeCellChat(list(MO = cellchat_Mo, CO = cellchat_Co), add.names = c("MO", "CO"))
 
 gg3 <- netVisual_heatmap(cellchat_merged, font.size = 14, font.size.title = 17) # Default "count"
 
