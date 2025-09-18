@@ -355,8 +355,9 @@ def score_circuit_kl_divergences(
 
     return kl_div1, kl_div2
 
-
-def plot_measurement_histograms(circuit: QuantumCircuit, nshots: int = 1000, title_prefix: str = "", figure_save_name: str = None):
+from typing import Tuple
+def plot_measurement_histograms(circuit: QuantumCircuit, nshots: int = 1000, title_prefix: str = "", figure_save_name: str = None, figsize: Tuple[int, int] = (12, 5)
+):
     """
     Simulates the given circuit and plots histograms for its classical registers
     (c_measure1 and c_measure2) side-by-side. The plots are displayed interactively
@@ -402,17 +403,19 @@ def plot_measurement_histograms(circuit: QuantumCircuit, nshots: int = 1000, tit
 
         # Create a figure with two subplots
         if counts_measure1 is not None or counts_measure2 is not None:
-            fig, axes = plt.subplots(1, 2, figsize=(12, 5)) # 1 row, 2 columns
+            fig, axes = plt.subplots(1, 2, figsize=figsize) # 1 row, 2 columns
             fig.suptitle(f"{title_prefix} - Measurement Counts ({nshots} shots)", fontsize=16)
 
             if counts_measure1 is not None:
                 plot_histogram(counts_measure1, ax=axes[0], title="c_measure1")
+                axes[0].set_title("c_measure1") # Manually set the title
             else:
                 axes[0].set_title("c_measure1 (Not Found)")
                 axes[0].text(0.5, 0.5, "No data", horizontalalignment='center', verticalalignment='center', transform=axes[0].transAxes)
 
             if counts_measure2 is not None:
                 plot_histogram(counts_measure2, ax=axes[1], title="c_measure2")
+                axes[1].set_title("c_measure2") # Manually set the title
             else:
                 axes[1].set_title("c_measure2 (Not Found)")
                 axes[1].text(0.5, 0.5, "No data", horizontalalignment='center', verticalalignment='center', transform=axes[1].transAxes)
