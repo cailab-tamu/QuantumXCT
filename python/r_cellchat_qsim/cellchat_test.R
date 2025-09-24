@@ -14,6 +14,7 @@ library(cowplot)
 library(openxlsx)
 library(patchwork)
 library(CellChat)
+library(readxl)
 
 # --- SETUP AND DATA PROCESSING ---
 base_dir <- "C:\\Users\\ssromerogon\\Documents\\vscode_working_dir\\QuantumXCT\\python\\r_cellchat_qsim"
@@ -63,9 +64,23 @@ cellchat_Mo <- createCellChat(object = data_mo, meta = data_mo@meta.data, group.
 cellchat_Co <- createCellChat(object = data_co, meta = data_co@meta.data, group.by = "CellType", assay = "RNA")
 
 #rm(data_mo, data_co, data)
+library(readxl)
+# Assuming your Excel file is named 'qsimDB.xlsx' and is in the same directory.
+file_name <- "qsimDB.xlsx"
+# Initialize an empty list to hold the data frames
+qsim_db <- list()
+sheet_names <- excel_sheets(file_name)
+# Loop through each sheet and load its data into a data frame
+for (sheet in sheet_names) {
+  cat(paste("Loading sheet:", sheet, "\n"))
+  # read_excel automatically handles the header row.
+  df <- read_excel(file_name, sheet = sheet)
+  qsim_db[[sheet]] <- df
+}
+print(head(qsim_db$interaction,5))
 
-# Assign CellChat database
-CellChatDB <- CellChatDB.human
+
+CellChatDB <- qsim_db
 cellchat_Mo@DB <- CellChatDB
 cellchat_Co@DB <- CellChatDB
 
@@ -74,7 +89,7 @@ cellchat_Co <- setIdent(cellchat_Co, ident.use = "CellType")
 
 # --- CELLCHAT INFERENCE FOR EACH CONDITION ---
 # Mo
-cellchat_Mo <- subsetData(cellchat_Mo)
+cellchat_Mo <- subsetData(cellchat_Mo, features = rownames(cellchat_Mo@data))
 cellchat_Mo <- identifyOverExpressedGenes(cellchat_Mo)
 cellchat_Mo <- identifyOverExpressedInteractions(cellchat_Mo)
 cellchat_Mo <- computeCommunProb(cellchat_Mo, type = 'truncatedMean' , trim = 0.01)
@@ -82,7 +97,7 @@ cellchat_Mo <- computeCommunProbPathway(cellchat_Mo, thresh = 0.05)
 cellchat_Mo <- aggregateNet(cellchat_Mo)
 
 # Co
-cellchat_Co <- subsetData(cellchat_Co)
+cellchat_Co <- subsetData(cellchat_Co,  features = rownames(cellchat_Co@data))
 cellchat_Co <- identifyOverExpressedGenes(cellchat_Co)
 cellchat_Co <- identifyOverExpressedInteractions(cellchat_Co)
 cellchat_Co <- computeCommunProb(cellchat_Co, type = 'truncatedMean', trim = 0.01)
