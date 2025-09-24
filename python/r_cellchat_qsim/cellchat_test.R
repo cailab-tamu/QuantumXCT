@@ -22,7 +22,7 @@ base_dir <- "C:\\Users\\ssromerogon\\Documents\\vscode_working_dir\\QuantumXCT\\
 setwd(base_dir)
 
 # Read Seurat object
-data <- readRDS(file.path(base_dir, "merged_datasets_co_mo.rds"))
+data <- readRDS(file.path(base_dir, "sim_merged_datasets_co_mo.rds"))
 table(data$CellType, data$BatchID)
 
 # Function to process Seurat object
