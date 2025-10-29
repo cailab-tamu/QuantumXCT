@@ -25,3 +25,4 @@ dependencies:
   - pip:
     - qiskit_aer
     - dwave-ocean-sdk==6.10.0     
+    - qiskit-optimization

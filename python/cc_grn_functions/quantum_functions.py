@@ -704,10 +704,11 @@ def find_best_cnot_sequence_brute_force(
 # ==============================================================================
 # --- MAIN SEARCH ALGORITHMS (REFACTORED) ---
 # ==============================================================================
-
 def _run_single_greedy_search_from_start(
     circ1, circ2, state_vec_probs_target1, state_vec_probs_target2,
-    all_possible_single_cnots, starting_cnot, min_cnot_depth, nshots, kl_tol
+    all_possible_single_cnots, starting_cnot, min_cnot_depth, nshots, kl_tol, ratio_kl_tol,
+    initial_kl_for_path, # <-- NEW: Accepts pre-calculated KL score
+    max_cnot_depth=30    # <-- NEW: Accepts maximum depth
 ):
     """
     [HELPER] Runs one greedy search path starting from a single CNOT.
@@ -716,62 +717,61 @@ def _run_single_greedy_search_from_start(
     ng_circ1 = circ1.num_qubits
     best_cnot_sequence = [starting_cnot]
     
-    initial_kl_for_path = score_circuit_kl_divergences(
-        add_cnots_and_measurements_to_circuit(concatenate_circuits_with_separate_measurements(circ1, circ2), ng_circ1, best_cnot_sequence),
-        state_vec_probs_target1, state_vec_probs_target2, nshots
-    )
-    if initial_kl_for_path is not None: initial_kl_for_path = initial_kl_for_path[0] + initial_kl_for_path[1]
-    else: initial_kl_for_path = float('inf')
+    # EFFICENCY FIX: Calculate the base circuit only ONCE
+    temp_base_circuit = concatenate_circuits_with_separate_measurements(circ1, circ2)
 
+    # Use the pre-calculated score passed in from the main function
     best_sequence_on_path = list(best_cnot_sequence)
     best_kl_on_path = initial_kl_for_path
     current_kl_sum_on_path = initial_kl_for_path
-
+    improvement_made = True
     iteration_count = 1
-    while True:
+    while improvement_made:
         iteration_count += 1
         improvement_made = False
         current_iteration_best_cnot = None
-        current_iteration_min_kl_sum = current_kl_sum_on_path
-        absolute_best_cnot_this_iter = None
-        absolute_min_kl_sum_this_iter = float('inf')
+        # Logic is sound here: current_iteration_min_kl_sum starts as the path's current best
+        current_iteration_min_kl_sum = current_kl_sum_on_path 
         
         for candidate_cnot in all_possible_single_cnots:
             if candidate_cnot not in best_cnot_sequence:
                 temp_cnot_sequence = best_cnot_sequence + [candidate_cnot]
-                temp_base_circuit = concatenate_circuits_with_separate_measurements(circ1, circ2)
+                
+                # Use the pre-calculated base circuit
                 temp_circuit_with_cnots = add_cnots_and_measurements_to_circuit(temp_base_circuit, ng_circ1, temp_cnot_sequence)
+                
                 kl_div1, kl_div2 = score_circuit_kl_divergences(temp_circuit_with_cnots, state_vec_probs_target1, state_vec_probs_target2, nshots)
                 
                 if kl_div1 is not None and kl_div2 is not None:
                     current_kl_sum = kl_div1 + kl_div2
                     
-                    if current_kl_sum < current_iteration_min_kl_sum:
+                    #if current_kl_sum < current_iteration_min_kl_sum:
+                    if current_kl_sum / current_iteration_min_kl_sum < ratio_kl_tol:
                         current_iteration_min_kl_sum = current_kl_sum
                         current_iteration_best_cnot = candidate_cnot
                         improvement_made = True
-                    
-                    if current_kl_sum < absolute_min_kl_sum_this_iter:
-                        absolute_min_kl_sum_this_iter = current_kl_sum
-                        absolute_best_cnot_this_iter = candidate_cnot
-        
+                        
         if improvement_made:
             best_cnot_sequence.append(current_iteration_best_cnot)
             current_kl_sum_on_path = current_iteration_min_kl_sum
-        else:
-            if len(best_cnot_sequence) < min_cnot_depth and absolute_best_cnot_this_iter is not None:
-                best_cnot_sequence.append(absolute_best_cnot_this_iter)
-                current_kl_sum_on_path = absolute_min_kl_sum_this_iter
-            else:
+        
+        # ROBUSTNESS FIX: Check for maximum depth limit first
+        if len(best_cnot_sequence) >= max_cnot_depth:
+             print(f"  Max depth ({max_cnot_depth}) reached. Stopping search path.")
+             break
+
+        # REFINED: Stagnation break condition (applies if no improvement was made)
+        if not improvement_made:
+            if len(best_cnot_sequence) > min_cnot_depth: 
                 break
 
         if current_kl_sum_on_path < best_kl_on_path:
             best_kl_on_path = current_kl_sum_on_path
             best_sequence_on_path = list(best_cnot_sequence)
-            print(f"    --> Found a better KL on this path: {best_kl_on_path:.6f} at depth {len(best_sequence_on_path)} with added CNOT {current_iteration_best_cnot}")
+            print(f"    --> Found a better KL on this path: {best_kl_on_path:.6f} at depth {len(best_sequence_on_path)} with added CNOT {current_iteration_best_cnot}")
 
         if current_kl_sum_on_path < kl_tol:
-            print(f"  KL Sum ({current_kl_sum_on_path:.6f}) below tolerance. Early stopping this epoch.")
+            print(f"  KL Sum ({current_kl_sum_on_path:.6f}) below tolerance. Early stopping this epoch.")
             break
             
     return best_sequence_on_path, best_kl_on_path
@@ -782,43 +782,67 @@ def _run_greedy_removal_search(
 ):
     """
     [NEW HELPER] Runs a greedy search by removing CNOTs from an initial sequence.
+    It iteratively removes the single CNOT whose absence most improves the KL divergence,
+    stopping when removal no longer helps or the minimum depth is reached.
     """
     ng_circ1 = circ1.num_qubits
-    best_cnot_sequence = list(initial_cnot_sequence)
     
+    # Use a copy of the initial sequence for manipulation
+    best_cnot_sequence = list(initial_cnot_sequence) 
+    
+    # Initialize path tracking variables
     best_sequence_on_path = list(initial_cnot_sequence)
     best_kl_on_path = min_kl_sum_initial
     current_kl_sum_on_path = min_kl_sum_initial
+    
+    # Efficiency Fix: Calculate the base circuit only ONCE
+    temp_base_circuit = concatenate_circuits_with_separate_measurements(circ1, circ2)
 
-    print(f"  Starting removal search with {len(initial_cnot_sequence)} CNOTs (KL Sum: {best_kl_on_path:.6f})")
+    print(f"  Starting removal search with {len(initial_cnot_sequence)} CNOTs (KL Sum: {best_kl_on_path:.6f})")
 
+    # Loop continues as long as the sequence length is above the minimum required depth
     while len(best_cnot_sequence) > min_cnot_depth:
         improvement_made = False
         best_cnot_to_remove = None
+        # Must use current_kl_sum_on_path as the threshold for improvement in this round
         best_kl_after_removal = current_kl_sum_on_path
         
-        for cnot_to_remove in best_cnot_sequence:
-            temp_cnot_sequence = [c for c in best_cnot_sequence if c != cnot_to_remove]
-            temp_base_circuit = concatenate_circuits_with_separate_measurements(circ1, circ2)
+        # --- Find the best CNOT to remove in this step (Greedy choice) ---
+        # NOTE: If CNOTs are repeated, this loop finds the first one that improves the score.
+        for i, cnot_to_remove in enumerate(best_cnot_sequence):
+            # Create a temporary sequence by removing the CNOT at index i
+            # This is safer than using list.remove(cnot) if identical CNOTs exist.
+            temp_cnot_sequence = best_cnot_sequence[:i] + best_cnot_sequence[i+1:]
+            
             temp_circuit_with_cnots = add_cnots_and_measurements_to_circuit(temp_base_circuit, ng_circ1, temp_cnot_sequence)
             kl_div1, kl_div2 = score_circuit_kl_divergences(temp_circuit_with_cnots, state_vec_probs_target1, state_vec_probs_target2, nshots)
             
             if kl_div1 is not None and kl_div2 is not None:
                 current_kl_after_removal = kl_div1 + kl_div2
+                
+                # Check for absolute improvement over the current path score
                 if current_kl_after_removal < best_kl_after_removal:
                     best_kl_after_removal = current_kl_after_removal
-                    best_cnot_to_remove = cnot_to_remove
+                    # Store the index for removal, which is unique
+                    best_cnot_to_remove_index = i 
+                    best_cnot_to_remove = cnot_to_remove # Store the CNOT identity for printing
                     improvement_made = True
         
+        # --- Apply the best removal ---
         if improvement_made:
-            best_cnot_sequence.remove(best_cnot_to_remove)
+            # Safely remove the CNOT by index if the sequence contains duplicates
+            best_cnot_sequence.pop(best_cnot_to_remove_index) 
             current_kl_sum_on_path = best_kl_after_removal
+            
+            # Update the overall best sequence found so far
             if current_kl_sum_on_path < best_kl_on_path:
                 best_kl_on_path = current_kl_sum_on_path
                 best_sequence_on_path = list(best_cnot_sequence)
-                print(f"  Removed CNOT {best_cnot_to_remove}. New best KL Sum: {current_kl_sum_on_path:.6f} at depth {len(best_cnot_sequence)}")
+            
+            print(f"  Removed CNOT {best_cnot_to_remove}. New KL Sum: {current_kl_sum_on_path:.6f} at depth {len(best_cnot_sequence)}")
+
         else:
-            print("  No CNOT removal improved the score. Stopping removal search.")
+            print("  No CNOT removal improved the score. Stopping removal search.")
             break
             
     return best_sequence_on_path, best_kl_on_path
@@ -880,11 +904,14 @@ def find_best_cnot_sequence_multi_epoch(
     n_epochs: int = 10,
     min_cnot_depth: int = 1,
     nshots: int = 1000,
-    threshold: float = 0.05,
-    kl_tol: float = 0.01
+    threshold: float = 0.1,
+    kl_tol: float = 0.01, 
+    ratio_kl_tol: float = 0.6,
+    max_greedy_depth: int = 30 # <-- NEW: Added max depth parameter
 ):
     """
-    [NEW MAIN] Performs a multi-epoch greedy search with a brute-force fallback.
+    [NEW MAIN] Performs a multi-epoch greedy search with CNOT removal refinement.
+    The brute-force fallback has been removed.
     """
     ng_circ1 = circ1.num_qubits
     ng_circ2 = circ2.num_qubits
@@ -892,6 +919,7 @@ def find_best_cnot_sequence_multi_epoch(
     print(f"\n--- Starting Multi-Epoch Refined Search ---")
     start_total_time = time.time()
     
+    # --- State and Density Matrix Analysis (Kept as is) ---
     state_list1_initial, _ = _process_target_state_input(state_probs_initial1)
     state_list2_initial, _ = _process_target_state_input(state_probs_initial2)
     state_list1_target, _ = _process_target_state_input(state_vec_probs_target1)
@@ -906,6 +934,16 @@ def find_best_cnot_sequence_multi_epoch(
     subtracted_density_matrix = density_matrix_sv - density_matrix_sv0
     matrix_to_plot = subtracted_density_matrix.data
     
+    # 1-4. Max, Min, Abs Average Print (Kept as is)
+    max_element = np.max(matrix_to_plot.flatten())
+    min_element = np.min(matrix_to_plot.flatten())
+    abs_matrix = np.abs(matrix_to_plot.flatten())
+    abs_average = np.mean(abs_matrix)
+    print(f"Maximum Density Element: {max_element}")
+    print(f"Minimum Density Element: {min_element}")
+    print(f"Absolute Average: {abs_average}")
+
+    # --- CNOT Candidate Pruning (Kept as is) ---
     row_indices_sv, col_indices_sv = np.where(matrix_to_plot > threshold)
     row_indices_sv0, col_indices_sv0 = np.where(matrix_to_plot < -threshold)
     dim = matrix_to_plot.shape[0]
@@ -919,7 +957,6 @@ def find_best_cnot_sequence_multi_epoch(
     all_labels_set0 = set(row_labels_sv0) | set(col_labels_sv0)
     sorted_labels0 = sorted(all_labels_set0)
     num_total_qubits_for_config = len(sorted_labels[0]) if sorted_labels else 0
-    # All possible configurations from states mapped
     all_cnot_configurations = set()
     for ibit_string in sorted_labels0:
         for jbit_string in sorted_labels:
@@ -932,6 +969,7 @@ def find_best_cnot_sequence_multi_epoch(
     print(f"Number of original CNOT candidates: {ng_circ1 * ng_circ2 * 2}")
     print(f"Number of refined CNOT candidates: {len(all_possible_single_cnots)}")
 
+    # --- Initial KL Score (Kept as is) ---
     base_combined_circuit = concatenate_circuits_with_separate_measurements(circ1, circ2)
     base_circuit_with_measurements = add_cnots_and_measurements_to_circuit(base_combined_circuit, ng_circ1, [])
     kl_div1_no_cnot, kl_div2_no_cnot = score_circuit_kl_divergences(base_circuit_with_measurements, state_vec_probs_target1, state_vec_probs_target2, nshots)
@@ -952,23 +990,31 @@ def find_best_cnot_sequence_multi_epoch(
         
         for epoch in range(num_epochs_to_run):
             starting_cnot = shuffled_candidates[epoch]
-            temp_kl_sum = score_circuit_kl_divergences(add_cnots_and_measurements_to_circuit(base_combined_circuit, ng_circ1, [starting_cnot]), 
-                                                       state_vec_probs_target1, state_vec_probs_target2, nshots)
+            
+            # EFFICENCY FIX: Calculate KL for the starting CNOT once
+            temp_kl_scores = score_circuit_kl_divergences(
+                add_cnots_and_measurements_to_circuit(base_combined_circuit, ng_circ1, [starting_cnot]), 
+                state_vec_probs_target1, state_vec_probs_target2, nshots
+            )
 
-
-            if temp_kl_sum is not None: 
-                temp_kl_sum = temp_kl_sum[0] + temp_kl_sum[1]
+            if temp_kl_scores is not None: 
+                temp_kl_sum = temp_kl_scores[0] + temp_kl_scores[1]
                 print(f"\n--- Starting Epoch {epoch + 1}/{num_epochs_to_run} (Addition) with CNOT: {starting_cnot} (KL: {temp_kl_sum:.6f}) ---")
             else:
                 print(f"\n--- Starting Epoch {epoch + 1}/{num_epochs_to_run} ---")
                 continue
-            
 
-            if temp_kl_sum >= initial_kl_sum: continue
-            
+            # LOGIC FIX: Skip if the single starting CNOT doesn't beat the baseline by ratio
+            if temp_kl_sum < initial_kl_sum:     
+                print(f"  Skipping: Single CNOT ({temp_kl_sum:.6f}) failed to beat baseline ({initial_kl_sum:.6f}) by ratio {ratio_kl_tol}.")
+                continue
+
+            # CRUCIAL FIXES: Pass the pre-calculated KL and the max depth to the helper
             best_sequence_this_epoch, min_kl_this_epoch = _run_single_greedy_search_from_start(
                 circ1, circ2, state_vec_probs_target1, state_vec_probs_target2,
-                all_possible_single_cnots, starting_cnot, min_cnot_depth, nshots, kl_tol
+                all_possible_single_cnots, starting_cnot, min_cnot_depth, nshots, kl_tol, ratio_kl_tol,
+                initial_kl_for_path=temp_kl_sum, 
+                max_cnot_depth=max_greedy_depth
             )
             
             print(f"  Epoch {epoch + 1} best KL Sum: {min_kl_this_epoch:.6f}")
@@ -976,8 +1022,8 @@ def find_best_cnot_sequence_multi_epoch(
                 best_overall_kl_sum = min_kl_this_epoch
                 best_overall_sequence = best_sequence_this_epoch
                 print(f"  --> Epoch {epoch + 1} found a new overall best KL Sum: {best_overall_kl_sum:.6f}")
-        
-        # --- Greedy CNOT removal search ---
+
+        # --- Greedy CNOT removal search (Kept as is) ---
         if best_overall_sequence:
             print("\n--- Starting Greedy CNOT Removal Search ---")
             best_sequence_after_removal, best_kl_after_removal = _run_greedy_removal_search(
@@ -989,19 +1035,10 @@ def find_best_cnot_sequence_multi_epoch(
                 best_overall_sequence = best_sequence_after_removal
                 print(f"\n--> Removal search found a new overall best KL Sum: {best_overall_kl_sum:.6f}")
 
-    # --- Brute-Force Fallback ---
-    if best_overall_kl_sum >= initial_kl_sum:
-        print(f"\nGreedy search failed to improve baseline KL sum ({best_overall_kl_sum:.6f}).")
-        print("Initiating brute-force fallback on all candidate permutations.")
-        brute_force_max_depth = min(4, len(all_possible_single_cnots))
-        best_overall_sequence_bf, best_overall_kl_sum_bf = find_best_cnot_sequence_brute_force_on_list(
-            circ1, circ2, all_possible_single_cnots, state_vec_probs_target1, state_vec_probs_target2,
-            max_cnot_depth=brute_force_max_depth, nshots=nshots
-        )
-        if best_overall_kl_sum_bf < best_overall_kl_sum:
-            best_overall_sequence = best_overall_sequence_bf
-            best_overall_kl_sum = best_overall_kl_sum_bf
-            print(f"\n--> Brute-force fallback found a better sequence with KL Sum: {best_overall_kl_sum:.6f}")
+    # --- Final Check (No Brute-Force Fallback) ---
+    if not best_overall_sequence and best_overall_kl_sum >= initial_kl_sum:
+        print(f"\nGreedy search failed to improve baseline KL sum ({best_overall_kl_sum:.6f}) or found no sequence.")
+        print("Consider running an optional brute-force search.")
     
     end_total_time = time.time()
     print(f"\nTotal search took: {end_total_time - start_total_time:.2f} seconds.")
@@ -1026,8 +1063,6 @@ def vector_normalize_dictionary_values(input_dict):
         normalized_dict[key] = values[i] / norm_val
     return normalized_dict
 
-
-
 def _single_cnot_insertion_search(
     base_circuit: QuantumCircuit,
     ng_circ1: int,
@@ -1036,7 +1071,8 @@ def _single_cnot_insertion_search(
     target_probs1: dict,
     target_probs2: dict,
     nshots: int,
-    kl_tol: float
+    kl_tol: float, 
+    ratio_kl_tol: float
 ):
     """
     Finds the best single CNOT to insert into the current sequence at the best location.
@@ -1064,7 +1100,8 @@ def _single_cnot_insertion_search(
             
             if kl_divs is not None:
                 kl_sum = kl_divs[0] + kl_divs[1]
-                if kl_sum < min_kl_after_add:
+                
+                if kl_sum / min_kl_after_add < ratio_kl_tol:                   
                     min_kl_after_add = kl_sum
                     best_single_cnot = cnot_to_add
                     best_insertion_index = i
@@ -1072,12 +1109,73 @@ def _single_cnot_insertion_search(
     
     if best_single_cnot is not None:
         new_sequence = current_sequence[:best_insertion_index] + [best_single_cnot] + current_sequence[best_insertion_index:]
+        print(f"  - No. CNOT tested insertion: {n_trials} | Added CNOT {best_single_cnot} at index {best_insertion_index} | Best added KL sum: {min_kl_after_add:.6f}")
         return new_sequence, min_kl_after_add, best_single_cnot
-        print(f"  - No. CNOT tested insertion: {n_trials} | Best insertion KL sum: {min_kl_of_candidates:.6f}")
     else:
         print(f"  - No. CNOT tested insertion: {n_trials}")
 
     return current_sequence, float('inf'), None
+
+def _single_cnot_deletion_search(
+    base_circuit: 'QuantumCircuit',
+    ng_circ1: int,
+    current_sequence: list,
+    candidate_cnots: list, # Argument included for signature consistency, but unused in deletion logic
+    target_probs1: dict,
+    target_probs2: dict,
+    nshots: int,
+    kl_tol: float, # Argument included for signature consistency, but unused in deletion logic
+    ratio_kl_tol: float # Argument included for signature consistency, but unused in deletion logic
+):
+    """
+    Finds the single CNOT whose removal yields the lowest KL divergence sum.
+    Returns the new sequence, its KL sum, and the deleted CNOT.
+    """
+    if not current_sequence:
+        print("   - Cannot perform deletion on an empty sequence.")
+        return current_sequence, float('inf'), None
+
+    # Calculate baseline KL sum of the current sequence for comparison
+    base_circuit_kl = add_cnots_and_measurements_to_circuit(base_circuit, ng_circ1, current_sequence)
+    kl_divs_base = score_circuit_kl_divergences(base_circuit_kl, target_probs1, target_probs2, nshots)
+    base_kl_sum = kl_divs_base[0] + kl_divs_base[1] if kl_divs_base is not None else float('inf')
+    
+    # Initialize candidates for deletion
+    # Note: We initialize min_kl_after_del to the current best KL sum. 
+    # This means the best deletion must result in a KL sum strictly better than the current one.
+    min_kl_after_del = base_kl_sum 
+    best_deletion_index = -1
+    deleted_cnot = None
+    n_trials = 0
+
+    # Try deleting every CNOT in the current sequence
+    for i in range(len(current_sequence)):
+        n_trials += 1
+        
+        # Create the trial sequence by excluding the CNOT at index i
+        trial_sequence = current_sequence[:i] + current_sequence[i+1:]
+        
+        trial_circuit = add_cnots_and_measurements_to_circuit(base_circuit, ng_circ1, trial_sequence)
+        kl_divs = score_circuit_kl_divergences(trial_circuit, target_probs1, target_probs2, nshots)
+        
+        if kl_divs is not None:
+            kl_sum = kl_divs[0] + kl_divs[1]
+            
+            # Look for the lowest KL sum
+            if kl_sum / min_kl_after_del < ratio_kl_tol:
+                min_kl_after_del = kl_sum
+                best_deletion_index = i
+                
+    if best_deletion_index != -1:
+        deleted_cnot = current_sequence[best_deletion_index]
+        new_sequence = current_sequence[:best_deletion_index] + current_sequence[best_deletion_index+1:]
+        print(f"  - No. CNOT tested deletion: {n_trials} | Deleted CNOT {deleted_cnot} at index {best_deletion_index} | Best deletion KL sum: {min_kl_after_del:.6f}")
+        return new_sequence, min_kl_after_del, deleted_cnot
+    else:
+        print(f"  - No. CNOT tested deletion: {n_trials}. Deletion did not improve KL sum.")
+        # Return the original sequence and a signal that no CNOT was removed
+        return current_sequence, base_kl_sum, None
+    
 
 def _pairwise_addition_search(
     base_circuit: 'QuantumCircuit',
@@ -1088,7 +1186,8 @@ def _pairwise_addition_search(
     target_probs2: dict,
     nshots: int,
     kl_tol: float = 0.01,
-    nchoose: int = 2
+    nchoose: int = 2,
+    ratio_kl_tol: float = 0.6
     ):
     """
     Iteratively adds the best CNOT pair or single CNOT based on which provides
@@ -1112,16 +1211,14 @@ def _pairwise_addition_search(
         best_candidate_sequence = None
         
         remaining_cnots = [c for c in candidate_cnots if c not in current_sequence]
-        shuffled_candidates = remaining_cnots.copy()
-        random.shuffle(shuffled_candidates)
 
         # --- PHASE 1: Find the best PAIR to add ---
-        if len(shuffled_candidates) >= nchoose:
+        if len(remaining_cnots) >= nchoose:
             best_pair_to_add = None
             min_kl_after_pair_add = float('inf')
             n_trials_pair = 0
 
-            for pair in itertools.permutations(shuffled_candidates, nchoose):
+            for pair in itertools.permutations(remaining_cnots, nchoose):
                 n_trials_pair += 1
                 trial_sequence = current_sequence + list(pair)
                 trial_circuit = add_cnots_and_measurements_to_circuit(base_circuit, ng_circ1, trial_sequence)
@@ -1129,7 +1226,9 @@ def _pairwise_addition_search(
                 
                 if kl_divs is not None:
                     kl_sum = kl_divs[0] + kl_divs[1]
-                    if kl_sum < min_kl_after_pair_add:
+
+                    #if kl_sum < min_kl_of_candidates:
+                    if kl_sum / min_kl_of_candidates < ratio_kl_tol:
                         min_kl_after_pair_add = kl_sum
                         best_pair_to_add = list(pair)
             
@@ -1138,15 +1237,14 @@ def _pairwise_addition_search(
                 best_candidate_sequence = current_sequence + best_pair_to_add
                 print(f"  - No. tested pairs: {n_trials_pair} | Added CNOTs {best_pair_to_add} | Best pair KL sum: {min_kl_of_candidates:.6f}")
             else: 
-                print(f"  - No. tested pairs: {n_trials_pair}")
+                print(f"  - No. tested pairs: {n_trials_pair} | No added CNOTs...")
 
-   
         # --- PHASE 2: Find the best SINGLE CNOT to add ---
         new_sequence_single, new_kl_sum_single, added_cnot = _single_cnot_insertion_search(
             base_circuit, ng_circ1, current_sequence, candidate_cnots,
-            target_probs1, target_probs2, nshots, kl_tol
+            target_probs1, target_probs2, nshots, kl_tol, ratio_kl_tol
         )
-        
+
         if added_cnot is not None:
             if new_kl_sum_single < min_kl_of_candidates:
                 min_kl_of_candidates = new_kl_sum_single
@@ -1155,9 +1253,23 @@ def _pairwise_addition_search(
             else:
                 print("  - Single CNOT insertion did not improve upon the best pair.")
 
+        # --- PHASE 3: Find the best SINGLE CNOT to add ---
+        new_sequence_del, new_kl_sum_del, deleted_cnot = _single_cnot_deletion_search(
+        base_circuit, ng_circ1, current_sequence, candidate_cnots,
+        target_probs1, target_probs2, nshots, kl_tol, ratio_kl_tol
+        )
+        
+        if deleted_cnot is not None:
+            if new_kl_sum_del < min_kl_of_candidates:
+                min_kl_of_candidates = new_kl_sum_del
+                best_candidate_sequence = new_sequence_del
+                print(f"  - Best single CNOT pruning KL Sum: {min_kl_of_candidates:.6f}")
+            else:
+                print("  - Single CNOT pruning did not improve upon the best pair.")
+
 
         # --- PHASE 3: Update the sequence if a better candidate was found ---
-        if best_candidate_sequence is not None and min_kl_of_candidates < best_kl_sum:
+        if best_candidate_sequence is not None and min_kl_of_candidates / best_kl_sum < ratio_kl_tol:
             current_sequence = best_candidate_sequence
             best_kl_sum = min_kl_of_candidates
             improvement_made = True
@@ -1180,9 +1292,10 @@ def find_best_cnot_sequence_iterative_n_wise(
     state_vec_probs_target1: dict,
     state_vec_probs_target2: dict,
     nshots: int = 1000,
-    threshold: float = 0.05,
+    threshold: float = 0.1,
     nchoose: int = 2,
-    kl_tol: float = 0.01
+    kl_tol: float = 0.01, 
+    ratio_kl_tol: float = 0.6
     ):
     """
     Performs an iterative optimization loop by separating pairwise addition
@@ -1209,6 +1322,15 @@ def find_best_cnot_sequence_iterative_n_wise(
     dm = DensityMatrix(sv)
     diff = dm - dm0
     matrix_data = diff.data
+
+    # 1-4. Max, Min, Abs Average Print (Kept as is)
+    max_element = np.max(matrix_data.flatten())
+    min_element = np.min(matrix_data.flatten())
+    abs_matrix = np.abs(matrix_data.flatten())
+    abs_average = np.mean(abs_matrix)
+    print(f"Maximum Density Element: {max_element}")
+    print(f"Minimum Density Element: {min_element}")
+    print(f"Absolute Average: {abs_average}")
 
     row_indices, col_indices = np.where(matrix_data > threshold)
     row_indices0, col_indices0 = np.where(matrix_data < -threshold)
@@ -1272,7 +1394,7 @@ def find_best_cnot_sequence_iterative_n_wise(
     # --- Step 3: Pairwise Addition Phase ---
     best_add_sequence, best_add_kl_sum = _pairwise_addition_search(
         base_combined_circuit, ng_circ1, [], initial_cnot_config,
-        state_vec_probs_target1, state_vec_probs_target2, nshots, kl_tol, nchoose
+        state_vec_probs_target1, state_vec_probs_target2, nshots, kl_tol, nchoose, ratio_kl_tol
     )
     print(f"\n--- Pairwise Addition Result ---")
     print(f"Best sequence after addition: {best_add_sequence}")
