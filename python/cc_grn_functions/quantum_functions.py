@@ -14,6 +14,24 @@ import itertools
 import random
 import time
 
+# --- Function to normalize dictionary values ---
+def vector_normalize_dictionary_values(input_dict):
+    """Normalizes the values of a dictionary by dividing each value by the L2 norm of all values."""
+    values = np.array(list(input_dict.values()), dtype=float)
+    if values.size == 0:  # Handle empty dictionary
+        return {}
+
+    norm_val = np.linalg.norm(values)  # Calculate the L2 norm of the values
+
+    if norm_val == 0:  # Avoid division by zero if all values are zero
+        return {key: 0.0 for key in input_dict}
+
+    normalized_dict = {}
+    # Iterate through original dictionary items to maintain key order
+    for i, (key, value) in enumerate(input_dict.items()):
+        normalized_dict[key] = values[i] / norm_val
+    return normalized_dict
+
 # --- Modified create_initial_circuit function ---
 def create_initial_circuit2(sparse_amplitude_dict):
     """
@@ -242,22 +260,24 @@ def calculate_kl_divergence(p_dist: dict, q_dist: dict, epsilon=1e-9) -> float:
     return kl_div
 
 # --- NEW HELPER FUNCTION ---
-def _process_target_state_input(target_input):
-    """Converts a dictionary or array to a normalized NumPy array."""
+from typing import List, Union, Set, Dict, Tuple, Optional
+def _process_target_state_input(target_input: Union[dict, list, np.ndarray]) -> Tuple[np.ndarray, int]:
+    """Converts a dictionary, list, or array to a normalized complex NumPy array."""
     if isinstance(target_input, dict):
-        if not target_input: raise ValueError("Target dictionary cannot be empty.")
+        if not target_input: return np.array([], dtype=complex), 0
         sample_bitstring = next(iter(target_input))
         n_qubits = len(sample_bitstring)
         vector_len = 2**n_qubits
-        full_vec = np.zeros(vector_len, dtype=float)
+        full_vec = np.zeros(vector_len, dtype=complex) # Use complex dtype
         for bs, val in target_input.items():
             idx = int(bs, 2)
-            full_vec[idx] = float(val)
+            full_vec[idx] = complex(val) # Cast to complex
         norm = np.linalg.norm(full_vec)
         normalized_vec = full_vec / norm if norm != 0 else full_vec
         return normalized_vec, n_qubits
     elif isinstance(target_input, (list, np.ndarray)):
-        processed_vec = np.array(target_input, dtype=float)
+        if len(target_input) == 0: return np.array([], dtype=complex), 0
+        processed_vec = np.array(target_input, dtype=complex) # Use complex dtype
         n_qubits = int(np.log2(len(processed_vec)))
         norm = np.linalg.norm(processed_vec)
         if not np.isclose(norm, 1.0) and norm != 0:
@@ -265,7 +285,6 @@ def _process_target_state_input(target_input):
         return processed_vec, n_qubits
     else:
         raise TypeError("Target state must be a dictionary, list, or numpy array.")
-
 
 
 def score_circuit_kl_divergences(
@@ -464,38 +483,6 @@ def plot_measurement_histograms(
     return counts_measure1, counts_measure2
 
 
-def create_cnot_pairs_from_locations(
-    locations_A: list[int],
-    locations_B: list[int]
-) -> set[tuple[int, int]]:
-    """
-    Generates a set of unique CNOT pairs from two lists of qubit locations.
-    It creates CNOTs in both directions (A -> B and B -> A).
-    
-    Args:
-        locations_A (list[int]): A list of active qubit indices for one circuit.
-        locations_B (list[int]): A list of active qubit indices for the other circuit.
-        
-    Returns:
-        set[tuple[int, int]]: A set of unique (control, target) CNOT pairs.
-    """
-    cnot_pairs = set()
-
-    # Generate CNOTs from A to B
-    for control_q in locations_A:
-        for target_q in locations_B:
-            if control_q != target_q:
-                cnot_pairs.add((control_q, target_q))
-
-    # Generate CNOTs from B to A
-    for control_q in locations_B:
-        for target_q in locations_A:
-            if control_q != target_q:
-                cnot_pairs.add((control_q, target_q))
-                
-    return cnot_pairs
-
-
 def optimize_crx_angles(
     circ1: QuantumCircuit,
     circ2: QuantumCircuit,
@@ -605,6 +592,36 @@ def optimize_crx_angles(
 
     return optimized_angles, min_kl_sum_optimized, optimization_history
 
+
+def create_cnot_pairs_from_locations(
+    locations_A: list[int],
+    locations_B: list[int]
+) -> set[tuple[int, int]]:
+    """
+    Generates a set of unique CNOT pairs from two lists of qubit locations.
+    It creates CNOTs in both directions (A -> B and B -> A).
+    Args:
+        locations_A (list[int]): A list of active qubit indices for one circuit.
+        locations_B (list[int]): A list of active qubit indices for the other circuit.
+        
+    Returns:
+        set[tuple[int, int]]: A set of unique (control, target) CNOT pairs.
+    """
+    cnot_pairs = set()
+
+    # Generate CNOTs from A to B
+    for control_q in locations_A:
+        for target_q in locations_B:
+            if control_q != target_q:
+                cnot_pairs.add((control_q, target_q))
+
+    # Generate CNOTs from B to A
+    for control_q in locations_B:
+        for target_q in locations_A:
+            if control_q != target_q:
+                cnot_pairs.add((control_q, target_q))
+                
+    return cnot_pairs
 
 def find_best_cnot_sequence_brute_force(
     circ1: QuantumCircuit,
@@ -727,9 +744,9 @@ def find_best_cnot_sequence_brute_force(
 # ==============================================================================
 def _run_single_greedy_search_from_start(
     circ1, circ2, state_vec_probs_target1, state_vec_probs_target2,
-    all_possible_single_cnots, starting_cnot, min_cnot_depth, nshots, kl_tol, ratio_kl_tol,
-    initial_kl_for_path, # <-- NEW: Accepts pre-calculated KL score
-    max_cnot_depth=30    # <-- NEW: Accepts maximum depth
+    all_possible_single_cnots, starting_cnot, min_cnot_depth, nshots, kl_tol,
+    initial_kl_for_path, 
+    max_cnot_depth=30  
 ):
     """
     [HELPER] Runs one greedy search path starting from a single CNOT.
@@ -766,8 +783,7 @@ def _run_single_greedy_search_from_start(
                 if kl_div1 is not None and kl_div2 is not None:
                     current_kl_sum = kl_div1 + kl_div2
                     
-                    #if current_kl_sum < current_iteration_min_kl_sum:
-                    if current_kl_sum / current_iteration_min_kl_sum < ratio_kl_tol:
+                    if current_kl_sum < current_iteration_min_kl_sum:
                         current_iteration_min_kl_sum = current_kl_sum
                         current_iteration_best_cnot = candidate_cnot
                         improvement_made = True
@@ -915,6 +931,118 @@ def find_best_cnot_sequence_brute_force_on_list(
     if min_kl_sum >= initial_kl_sum: return [], initial_kl_sum
     else: return best_cnot_sequence, min_kl_sum
 
+from typing import List, Union, Set, Dict, Tuple, Optional
+def find_cnot_candidates_from_state_diff(
+    state_probs_initial1: Union[dict, list, np.ndarray],
+    state_probs_initial2: Union[dict, list, np.ndarray],
+    state_vec_probs_target1: Union[dict, list, np.ndarray],
+    state_vec_probs_target2: Union[dict, list, np.ndarray],
+    threshold: float,
+    plot_filename: Optional[str] = None,
+    show_plot: bool = False,
+    verbose_print: bool = False
+) -> Tuple[List[Tuple[int, int]], Dict[str, float]]:
+    """
+    Analyzes state differences to propose CNOT gate candidates, with improved plotting for large matrices.
+    """
+    # --- Steps 1-4 remain identical ---
+    state_list1_initial, _ = _process_target_state_input(state_probs_initial1)
+    state_list2_initial, _ = _process_target_state_input(state_probs_initial2)
+    state_list1_target, _ = _process_target_state_input(state_vec_probs_target1)
+    state_list2_target, _ = _process_target_state_input(state_vec_probs_target2)
+    combined_amps0 = np.kron(state_list2_initial, state_list1_initial)
+    combined_amps = np.kron(state_list2_target, state_list1_target)
+    if combined_amps0.size == 0 or combined_amps.size == 0:
+        if verbose_print: print("Warning: Input states are empty. Cannot perform analysis.")
+        return [], {}
+    dm0 = DensityMatrix(Statevector(combined_amps0))
+    dm = DensityMatrix(Statevector(combined_amps))
+    diff_matrix = (dm - dm0).data
+    real_part_data = diff_matrix.real
+    positive_elements = real_part_data[real_part_data > 0]
+    negative_elements = real_part_data[real_part_data < 0]
+    stats = {
+        "max_element": np.max(real_part_data), "min_element": np.min(real_part_data),
+        "abs_average": np.mean(np.abs(diff_matrix)),
+        "avg_positive": np.mean(positive_elements) if positive_elements.size > 0 else 0.0,
+        "avg_negative": np.mean(negative_elements) if negative_elements.size > 0 else 0.0,
+    }
+    dim = diff_matrix.shape[0]
+    num_qubits = int(np.log2(dim))
+    labels = [bin(i)[2:].zfill(num_qubits) for i in range(dim)]
+    rows_pos, cols_pos = np.where(real_part_data > threshold)
+    rows_neg, cols_neg = np.where(real_part_data < -threshold)
+    active_labels_pos = set(labels[i] for i in rows_pos) | set(labels[i] for i in cols_pos)
+    active_labels_neg = set(labels[i] for i in rows_neg) | set(labels[i] for i in cols_neg)
+    all_cnot_configurations = set()
+    for neg_label in active_labels_neg:
+        for pos_label in active_labels_pos:
+            neg_locs = [num_qubits - 1 - i for i, bit in enumerate(neg_label) if bit == '1']
+            pos_locs = [num_qubits - 1 - i for i, bit in enumerate(pos_label) if bit == '1']
+            new_pairs = create_cnot_pairs_from_locations(neg_locs, pos_locs)
+            all_cnot_configurations.update(new_pairs)
+    cnot_candidates = sorted(list(all_cnot_configurations))
+
+    # --- Step 5: Optional Plotting (ENHANCED LOGIC) ---
+    if plot_filename or show_plot:
+        fig, ax = plt.subplots(figsize=(7, 6))
+
+        # For small matrices, show all labels directly in heatmap
+        if dim <= 16:
+            sns.heatmap(
+                real_part_data, annot=False, cmap="RdBu", cbar=True,
+                xticklabels=labels, yticklabels=labels, ax=ax
+            )
+        # For large matrices, manually set subsampled ticks and bitstring labels
+        else:
+            # Draw heatmap first without labels to avoid clutter
+            sns.heatmap(
+                real_part_data, annot=False, cmap="RdBu", cbar=True,
+                xticklabels=False, yticklabels=False, ax=ax
+            )
+            
+            # Calculate tick positions (e.g., 0, 10, 20...)
+            tick_interval = 10
+            tick_positions = np.arange(0, dim, tick_interval)
+            
+            # Get the bitstring labels for those positions
+            tick_str_labels = [labels[i] for i in tick_positions]
+            
+            # Set the ticks. Add 0.5 to center them on the heatmap cells.
+            ax.set_xticks(tick_positions + 0.5)
+            ax.set_yticks(tick_positions + 0.5)
+            
+            # Set the custom bitstring labels with rotation for readability
+            ax.set_xticklabels(tick_str_labels, rotation=90, ha='center')
+            ax.set_yticklabels(tick_str_labels, rotation=0, va='center')
+
+        ax.set_title("Real Part of Density Matrix Difference (ρ_target - ρ_initial)")
+        ax.set_xlabel("Column State")
+        ax.set_ylabel("Row State")
+        plt.tight_layout()
+
+        if plot_filename:
+            plt.savefig(plot_filename)
+            if show_plot: print(f"Plot saved to '{plot_filename}'")
+        
+        if show_plot:
+            plt.show()
+        
+        plt.close(fig)
+
+    # --- Step 6: Optional Verbose Printing ---
+    if verbose_print:
+        total_possible_cnots = num_qubits * (num_qubits - 1) if num_qubits > 1 else 0
+        print("\n--- CNOT Candidate Analysis Summary ---")
+        print(f"System has {num_qubits} qubits.")
+        print(f"Total possible CNOTs (brute-force): {total_possible_cnots}")
+        print(f"Number of refined CNOT candidates found: {len(cnot_candidates)}")
+        #if cnot_candidates: print(f"Refined Candidates: {cnot_candidates}")
+        #else: print("No refined candidates found meeting the threshold.")
+        print("---------------------------------------\n")
+        
+    return cnot_candidates, stats
+
 def find_best_cnot_sequence_multi_epoch(
     circ1: QuantumCircuit,
     circ2: QuantumCircuit,
@@ -941,54 +1069,12 @@ def find_best_cnot_sequence_multi_epoch(
     start_total_time = time.time()
     
     # --- State and Density Matrix Analysis (Kept as is) ---
-    state_list1_initial, _ = _process_target_state_input(state_probs_initial1)
-    state_list2_initial, _ = _process_target_state_input(state_probs_initial2)
-    state_list1_target, _ = _process_target_state_input(state_vec_probs_target1)
-    state_list2_target, _ = _process_target_state_input(state_vec_probs_target2)
-
-    combined_state_amplitudes0 = np.kron(state_list2_initial, state_list1_initial)
-    sv0 = Statevector(combined_state_amplitudes0)
-    combined_state_amplitudes = np.kron(state_list2_target, state_list1_target)
-    sv = Statevector(combined_state_amplitudes)
-    density_matrix_sv0 = DensityMatrix(sv0)
-    density_matrix_sv = DensityMatrix(sv)
-    subtracted_density_matrix = density_matrix_sv - density_matrix_sv0
-    matrix_to_plot = subtracted_density_matrix.data
-    
-    # 1-4. Max, Min, Abs Average Print (Kept as is)
-    max_element = np.max(matrix_to_plot.flatten())
-    min_element = np.min(matrix_to_plot.flatten())
-    abs_matrix = np.abs(matrix_to_plot.flatten())
-    abs_average = np.mean(abs_matrix)
-    print(f"Maximum Density Element: {max_element}")
-    print(f"Minimum Density Element: {min_element}")
-    print(f"Absolute Average: {abs_average}")
-
-    # --- CNOT Candidate Pruning (Kept as is) ---
-    row_indices_sv, col_indices_sv = np.where(matrix_to_plot > threshold)
-    row_indices_sv0, col_indices_sv0 = np.where(matrix_to_plot < -threshold)
-    dim = matrix_to_plot.shape[0]
-    labels = [bin(i)[2:].zfill(int(np.log2(dim))) for i in range(dim)]
-    row_labels_sv = [labels[i] for i in row_indices_sv]
-    col_labels_sv = [labels[i] for i in col_indices_sv]
-    all_labels_set = set(row_labels_sv) | set(col_labels_sv)
-    sorted_labels = sorted(all_labels_set)
-    row_labels_sv0 = [labels[i] for i in row_indices_sv0]
-    col_labels_sv0 = [labels[i] for i in col_indices_sv0]
-    all_labels_set0 = set(row_labels_sv0) | set(col_labels_sv0)
-    sorted_labels0 = sorted(all_labels_set0)
-    num_total_qubits_for_config = len(sorted_labels[0]) if sorted_labels else 0
-    all_cnot_configurations = set()
-    for ibit_string in sorted_labels0:
-        for jbit_string in sorted_labels:
-            locations_i_qiskit = [num_total_qubits_for_config - 1 - i for i, bit in enumerate(ibit_string) if bit == '1']
-            locations_j_qiskit = [num_total_qubits_for_config - 1 - i for i, bit in enumerate(jbit_string) if bit == '1']
-            new_cnot_pairs = create_cnot_pairs_from_locations(locations_i_qiskit, locations_j_qiskit)
-            all_cnot_configurations.update(new_cnot_pairs)
-    all_possible_single_cnots = sorted(list(all_cnot_configurations))
-    
-    print(f"Number of original CNOT candidates: {ng_circ1 * ng_circ2 * 2}")
-    print(f"Number of refined CNOT candidates: {len(all_possible_single_cnots)}")
+    all_possible_single_cnots, stats = find_cnot_candidates_from_state_diff(
+        state_probs_initial1, state_probs_initial2,
+        state_vec_probs_target1, state_vec_probs_target2,
+        threshold= threshold, verbose_print = True,
+        plot_filename = None, show_plot = True
+        )
 
     # --- Initial KL Score (Kept as is) ---
        # --- Initial KL Score (Unchanged) ---
@@ -1023,21 +1109,22 @@ def find_best_cnot_sequence_multi_epoch(
                 print(f"\n--- Starting Epoch {epoch + 1}/{num_epochs_to_run} ---")
                 continue
 
-            # *** CHANGE 1: Use ratio for starting an epoch ***
-            if temp_kl_sum / initial_kl_sum >= ratio_kl_tol:     
+            # If initial point CNOT is not beneficial, skip it
+            #if temp_kl_sum / initial_kl_sum >= ratio_kl_tol:  
+            if temp_kl_sum >= initial_kl_sum:     
                 print(f"  Skipping epoch: Single CNOT KL ({temp_kl_sum:.6f}) does not provide significant improvement over baseline ({initial_kl_sum:.6f}).")
                 continue
 
             # Pass pre-calculated KL to the helper
             best_sequence_this_epoch, min_kl_this_epoch = _run_single_greedy_search_from_start(
                 circ1, circ2, state_vec_probs_target1, state_vec_probs_target2,
-                all_possible_single_cnots, starting_cnot, min_cnot_depth, nshots, kl_tol, ratio_kl_tol,
+                all_possible_single_cnots, starting_cnot, min_cnot_depth, nshots, kl_tol,
                 initial_kl_for_path=temp_kl_sum, 
                 max_cnot_depth=max_greedy_depth
             )
             
             print(f"  Epoch {epoch + 1} best KL Sum: {min_kl_this_epoch:.6f}")
-            # *** CHANGE 2: Use ratio to update the best overall sequence ***
+            # Compare the ratio to update the best overall sequence
             if min_kl_this_epoch / best_overall_kl_sum < ratio_kl_tol:
                 best_overall_kl_sum = min_kl_this_epoch
                 best_overall_sequence = best_sequence_this_epoch
@@ -1048,7 +1135,7 @@ def find_best_cnot_sequence_multi_epoch(
             print("\n--- Starting Greedy CNOT Removal Search ---")
             best_sequence_after_removal, best_kl_after_removal = _run_greedy_removal_search(
                 circ1, circ2, state_vec_probs_target1, state_vec_probs_target2,
-                best_overall_sequence, best_overall_kl_sum, 0, nshots, ratio_kl_tol # Pass ratio_kl_tol
+                best_overall_sequence, best_overall_kl_sum, 0, nshots
             )
 
             # *** CHANGE 3: Use ratio to update after removal ***
@@ -1067,23 +1154,6 @@ def find_best_cnot_sequence_multi_epoch(
     
     return best_overall_sequence, best_overall_kl_sum
 
-# --- Function to normalize dictionary values ---
-def vector_normalize_dictionary_values(input_dict):
-    """Normalizes the values of a dictionary by dividing each value by the L2 norm of all values."""
-    values = np.array(list(input_dict.values()), dtype=float)
-    if values.size == 0:  # Handle empty dictionary
-        return {}
-    
-    norm_val = np.linalg.norm(values)  # Calculate the L2 norm of the values
-
-    if norm_val == 0:  # Avoid division by zero if all values are zero
-        return {key: 0.0 for key in input_dict}
-
-    normalized_dict = {}
-    # Iterate through original dictionary items to maintain key order
-    for i, (key, value) in enumerate(input_dict.items()):
-        normalized_dict[key] = values[i] / norm_val
-    return normalized_dict
 
 def _single_cnot_insertion_search(
     base_circuit: QuantumCircuit,
@@ -1330,76 +1400,15 @@ def find_best_cnot_sequence_iterative_n_wise(
     print(f"\n--- Starting Iterative Pairwise Search ---")
     start_total_time = time.time()
 
-    # --- Step 1: Build refined CNOT candidate list ---
-    state_list1_initial, _ = _process_target_state_input(state_probs_initial1)
-    state_list2_initial, _ = _process_target_state_input(state_probs_initial2)
-    state_list1_target, _ = _process_target_state_input(state_vec_probs_target1)
-    state_list2_target, _ = _process_target_state_input(state_vec_probs_target2)
-
-    combined_state_amplitudes0 = np.kron(state_list2_initial, state_list1_initial)
-    combined_state_amplitudes = np.kron(state_list2_target, state_list1_target)
-    sv0 = Statevector(combined_state_amplitudes0)
-    sv = Statevector(combined_state_amplitudes)
-    dm0 = DensityMatrix(sv0)
-    dm = DensityMatrix(sv)
-    diff = dm - dm0
-    matrix_data = diff.data
-
-    # 1-4. Max, Min, Abs Average Print (Kept as is)
-    max_element = np.max(matrix_data.flatten())
-    min_element = np.min(matrix_data.flatten())
-    abs_matrix = np.abs(matrix_data.flatten())
-    abs_average = np.mean(abs_matrix)
-    print(f"Maximum Density Element: {max_element}")
-    print(f"Minimum Density Element: {min_element}")
-    print(f"Absolute Average: {abs_average}")
-
-    row_indices, col_indices = np.where(matrix_data > threshold)
-    row_indices0, col_indices0 = np.where(matrix_data < -threshold)
-
-    dim = matrix_data.shape[0]
-    labels = [bin(i)[2:].zfill(int(np.log2(dim))) for i in range(dim)]
-    active_labels = set(labels[i] for i in row_indices) | set(labels[i] for i in col_indices)
-    active_labels0 = set(labels[i] for i in row_indices0) | set(labels[i] for i in col_indices0)
-
-    all_cnot_configurations = set()
-    for ibit_string in active_labels0:
-        for jbit_string in active_labels:
-            i_locs = [len(ibit_string) - 1 - i for i, bit in enumerate(ibit_string) if bit == '1']
-            j_locs = [len(jbit_string) - 1 - i for i, bit in enumerate(jbit_string) if bit == '1']
-            all_cnot_configurations.update(create_cnot_pairs_from_locations(i_locs, j_locs))
-    initial_cnot_config = sorted(list(all_cnot_configurations))
+    # --- State and Density Matrix Analysis ---
+    initial_cnot_config, stats = find_cnot_candidates_from_state_diff(
+        state_probs_initial1, state_probs_initial2,
+        state_vec_probs_target1, state_vec_probs_target2, 
+        threshold= threshold, verbose_print = True,
+        plot_filename = None, show_plot = True
+        )
 
     print(f"Number of initial CNOT candidates: {len(initial_cnot_config)}")
-    
-    # Optional: Plotting Real and Imaginary parts separately (also without annotations)
-    fig, axes = plt.subplots(1, 2, figsize=(16, 7))
-
-    sns.heatmap(np.real(matrix_data),
-                annot=False,
-                cmap="RdBu",
-                cbar=True,
-                xticklabels=labels,
-                yticklabels=labels,
-                ax=axes[0])
-    axes[0].set_title("Real Part of Subtracted Density Matrix")
-    axes[0].set_xlabel("Column Index (Binary State)")
-    axes[0].set_ylabel("Row Index (Binary State)")
-
-    sns.heatmap(np.imag(matrix_data),
-                annot=False,
-                cmap="coolwarm",
-                cbar=True,
-                xticklabels=labels,
-                yticklabels=labels,
-                ax=axes[1])
-    axes[1].set_title("Imaginary Part of Subtracted Density Matrix")
-    axes[1].set_xlabel("Column Index (Binary State)")
-    axes[1].set_ylabel("Row Index (Binary State)")
-
-    plt.tight_layout()
-    plt.savefig('dens_state_diff.svg')
-    plt.close(fig)
 
     # --- Step 2: Baseline (no CNOTs) ---
     base_combined_circuit = concatenate_circuits_with_separate_measurements(circ1, circ2)
