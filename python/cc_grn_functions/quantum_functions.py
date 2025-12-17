@@ -356,28 +356,49 @@ def score_circuit_kl_divergences(
     return kl_div1, kl_div2
 
 from typing import Tuple
-def plot_measurement_histograms(circuit: QuantumCircuit, nshots: int = 1000, title_prefix: str = "", figure_save_name: str = None, figsize: Tuple[int, int] = (12, 5)
+
+def plot_measurement_histograms(
+    circuit: QuantumCircuit,
+    nshots: int = 1000,
+    backend=None,
+    title_prefix: str = "",
+    figure_save_name: str = None,
+    figsize: Tuple[int, int] = (12, 5)
 ):
     """
-    Simulates the given circuit and plots histograms for its classical registers
-    (c_measure1 and c_measure2) side-by-side. The plots are displayed interactively
-    and can optionally be saved to a file.
+    Runs the given circuit on a specified Qiskit backend (simulator or hardware)
+    and plots measurement histograms for its classical registers 'c_measure1'
+    and 'c_measure2' side-by-side.
 
     Args:
-        circuit (QuantumCircuit): The Qiskit QuantumCircuit to simulate and plot.
-                                  It must have classical registers named 'c_measure1' and 'c_measure2'.
-        nshots (int): The number of shots for the simulation. Defaults to 1000.
-        title_prefix (str): A prefix to add to the overall figure title (e.g., "Final Circuit").
-        figure_save_name (str, optional): If provided, the figure will be saved to this filename.
-                                          Defaults to None (figure only displayed interactively).
+        circuit (QuantumCircuit): The circuit to execute and plot. Should contain classical registers
+                                  named 'c_measure1' and 'c_measure2'.
+        nshots (int, optional): Number of shots (circuit runs). Defaults to 1000.
+        backend (optional): Qiskit backend to run the circuit (e.g. AerSimulator, or IBM/Q device).
+                            If None, uses AerSimulator by default.
+        title_prefix (str, optional): Prefix for the figure title.
+        figure_save_name (str, optional): If provided, saves the figure to this filename.
+        figsize (tuple, optional): Figure size in inches. Default is (12, 5).
+
+    Returns:
+        Tuple (counts_measure1, counts_measure2): Measured bitstring counts for both registers.
+
+    Notes:
+        - If 'c_measure1' or 'c_measure2' registers are missing, their count/histogram will be skipped.
+        - To run on hardware, pass a backend instance provisioned through Qiskit.
     """
-    print(f"\n--- Simulating and Plotting Histograms for: {title_prefix} ---")
 
-    # 1. Simulate the circuit
-    backend = AerSimulator()
-    pm = generate_preset_pass_manager(backend=backend, optimization_level=3)
-    qc_comp = pm.run(circuit)
-
+    print(f"\n--- Running circuit for: {title_prefix} ---")
+    # 1. Select backend
+    if backend is None:
+        backend = AerSimulator()
+    # transpile if using AerSimulator (for real hardware, sometimes needed as well)
+    try:
+        pm = generate_preset_pass_manager(backend=backend, optimization_level=3)
+        qc_comp = pm.run(circuit)
+    except Exception:
+        # Fallback if not available for the backend (some HW backends)
+        qc_comp = circuit
     sampler = Sampler(mode=backend)
     job = sampler.run([qc_comp], shots=nshots)
 
@@ -970,13 +991,12 @@ def find_best_cnot_sequence_multi_epoch(
     print(f"Number of refined CNOT candidates: {len(all_possible_single_cnots)}")
 
     # --- Initial KL Score (Kept as is) ---
+       # --- Initial KL Score (Unchanged) ---
     base_combined_circuit = concatenate_circuits_with_separate_measurements(circ1, circ2)
     base_circuit_with_measurements = add_cnots_and_measurements_to_circuit(base_combined_circuit, ng_circ1, [])
     kl_div1_no_cnot, kl_div2_no_cnot = score_circuit_kl_divergences(base_circuit_with_measurements, state_vec_probs_target1, state_vec_probs_target2, nshots)
     initial_kl_sum = kl_div1_no_cnot + kl_div2_no_cnot if kl_div1_no_cnot is not None and kl_div2_no_cnot is not None else float('inf')
-
     print(f"Initial KL divergence: {initial_kl_sum:.6f}")
-
     best_overall_sequence = []
     best_overall_kl_sum = initial_kl_sum
     
@@ -991,25 +1011,24 @@ def find_best_cnot_sequence_multi_epoch(
         for epoch in range(num_epochs_to_run):
             starting_cnot = shuffled_candidates[epoch]
             
-            # EFFICENCY FIX: Calculate KL for the starting CNOT once
+            # Calculate KL for the starting CNOT
             temp_kl_scores = score_circuit_kl_divergences(
                 add_cnots_and_measurements_to_circuit(base_combined_circuit, ng_circ1, [starting_cnot]), 
                 state_vec_probs_target1, state_vec_probs_target2, nshots
             )
-
-            if temp_kl_scores is not None: 
+            if temp_kl_scores is not None and temp_kl_scores[0] is not None: 
                 temp_kl_sum = temp_kl_scores[0] + temp_kl_scores[1]
                 print(f"\n--- Starting Epoch {epoch + 1}/{num_epochs_to_run} (Addition) with CNOT: {starting_cnot} (KL: {temp_kl_sum:.6f}) ---")
             else:
                 print(f"\n--- Starting Epoch {epoch + 1}/{num_epochs_to_run} ---")
                 continue
 
-            # LOGIC FIX: Skip if the single starting CNOT doesn't beat the baseline by ratio
-            if temp_kl_sum < initial_kl_sum:     
-                print(f"  Skipping: Single CNOT ({temp_kl_sum:.6f}) failed to beat baseline ({initial_kl_sum:.6f}) by ratio {ratio_kl_tol}.")
+            # *** CHANGE 1: Use ratio for starting an epoch ***
+            if temp_kl_sum / initial_kl_sum >= ratio_kl_tol:     
+                print(f"  Skipping epoch: Single CNOT KL ({temp_kl_sum:.6f}) does not provide significant improvement over baseline ({initial_kl_sum:.6f}).")
                 continue
 
-            # CRUCIAL FIXES: Pass the pre-calculated KL and the max depth to the helper
+            # Pass pre-calculated KL to the helper
             best_sequence_this_epoch, min_kl_this_epoch = _run_single_greedy_search_from_start(
                 circ1, circ2, state_vec_probs_target1, state_vec_probs_target2,
                 all_possible_single_cnots, starting_cnot, min_cnot_depth, nshots, kl_tol, ratio_kl_tol,
@@ -1018,19 +1037,22 @@ def find_best_cnot_sequence_multi_epoch(
             )
             
             print(f"  Epoch {epoch + 1} best KL Sum: {min_kl_this_epoch:.6f}")
-            if min_kl_this_epoch < best_overall_kl_sum:
+            # *** CHANGE 2: Use ratio to update the best overall sequence ***
+            if min_kl_this_epoch / best_overall_kl_sum < ratio_kl_tol:
                 best_overall_kl_sum = min_kl_this_epoch
                 best_overall_sequence = best_sequence_this_epoch
                 print(f"  --> Epoch {epoch + 1} found a new overall best KL Sum: {best_overall_kl_sum:.6f}")
 
-        # --- Greedy CNOT removal search (Kept as is) ---
+        # --- Greedy CNOT removal search ---
         if best_overall_sequence:
             print("\n--- Starting Greedy CNOT Removal Search ---")
             best_sequence_after_removal, best_kl_after_removal = _run_greedy_removal_search(
                 circ1, circ2, state_vec_probs_target1, state_vec_probs_target2,
-                best_overall_sequence, best_overall_kl_sum, 0, nshots
+                best_overall_sequence, best_overall_kl_sum, 0, nshots, ratio_kl_tol # Pass ratio_kl_tol
             )
-            if best_kl_after_removal < best_overall_kl_sum:
+
+            # *** CHANGE 3: Use ratio to update after removal ***
+            if best_kl_after_removal / best_overall_kl_sum < ratio_kl_tol:
                 best_overall_kl_sum = best_kl_after_removal
                 best_overall_sequence = best_sequence_after_removal
                 print(f"\n--> Removal search found a new overall best KL Sum: {best_overall_kl_sum:.6f}")
