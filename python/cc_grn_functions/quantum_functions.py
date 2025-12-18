@@ -1043,6 +1043,10 @@ def find_cnot_candidates_from_state_diff(
         
     return cnot_candidates, stats
 
+from typing import Optional, List, Tuple
+import random
+import time
+
 def find_best_cnot_sequence_multi_epoch(
     circ1: QuantumCircuit,
     circ2: QuantumCircuit,
@@ -1050,108 +1054,108 @@ def find_best_cnot_sequence_multi_epoch(
     state_probs_initial2: dict,
     state_vec_probs_target1: dict,
     state_vec_probs_target2: dict,
+    # --- NEW: Optional parameter to provide a candidate list ---
+    cnot_search_candidates: Optional[List[Tuple[int, int]]] = None,
     n_epochs: int = 10,
     min_cnot_depth: int = 1,
     nshots: int = 1000,
     threshold: float = 0.1,
-    kl_tol: float = 0.01, 
+    kl_tol: float = 0.01,
     ratio_kl_tol: float = 0.6,
-    max_greedy_depth: int = 30 # <-- NEW: Added max depth parameter
+    max_greedy_depth: int = 30
 ):
     """
-    [NEW MAIN] Performs a multi-epoch greedy search with CNOT removal refinement.
-    The brute-force fallback has been removed.
+    Performs a multi-epoch greedy search with CNOT removal refinement.
+
+    If `cnot_search_candidates` is provided, it uses that list for the search.
+    Otherwise, it generates candidates by analyzing the density matrix difference.
     """
     ng_circ1 = circ1.num_qubits
-    ng_circ2 = circ2.num_qubits
-
     print(f"\n--- Starting Multi-Epoch Refined Search ---")
     start_total_time = time.time()
-    
-    # --- State and Density Matrix Analysis (Kept as is) ---
-    all_possible_single_cnots, stats = find_cnot_candidates_from_state_diff(
-        state_probs_initial1, state_probs_initial2,
-        state_vec_probs_target1, state_vec_probs_target2,
-        threshold= threshold, verbose_print = True,
-        plot_filename = None, show_plot = True
+
+    # --- NEW LOGIC: Decide where to get CNOT candidates from ---
+    if cnot_search_candidates is not None:
+        print("\n--- Using provided CNOT candidate list for the search. ---")
+        all_possible_single_cnots = cnot_search_candidates
+        print(f"Number of candidates to be searched: {len(all_possible_single_cnots)}")
+    else:
+        print("\n--- Generating CNOT candidates from density matrix difference. ---")
+        all_possible_single_cnots, stats = find_cnot_candidates_from_state_diff(
+            state_probs_initial1, state_probs_initial2,
+            state_vec_probs_target1, state_vec_probs_target2,
+            threshold=threshold, verbose_print=True,
+            plot_filename=None, show_plot=True
         )
 
-    # --- Initial KL Score (Kept as is) ---
-       # --- Initial KL Score (Unchanged) ---
+    # --- The rest of the function proceeds as before ---
     base_combined_circuit = concatenate_circuits_with_separate_measurements(circ1, circ2)
     base_circuit_with_measurements = add_cnots_and_measurements_to_circuit(base_combined_circuit, ng_circ1, [])
     kl_div1_no_cnot, kl_div2_no_cnot = score_circuit_kl_divergences(base_circuit_with_measurements, state_vec_probs_target1, state_vec_probs_target2, nshots)
     initial_kl_sum = kl_div1_no_cnot + kl_div2_no_cnot if kl_div1_no_cnot is not None and kl_div2_no_cnot is not None else float('inf')
-    print(f"Initial KL divergence: {initial_kl_sum:.6f}")
+    print(f"Initial KL divergence (baseline): {initial_kl_sum:.6f}")
+    
     best_overall_sequence = []
     best_overall_kl_sum = initial_kl_sum
-    
+
     if not all_possible_single_cnots:
-        print("\nNo CNOT candidates found. Skipping all searches.")
+        print("\nNo CNOT candidates found or provided. Skipping search epochs.")
     else:
         # --- Multi-Epoch greedy search (addition) ---
         num_epochs_to_run = min(n_epochs, len(all_possible_single_cnots))
         shuffled_candidates = all_possible_single_cnots.copy()
         random.shuffle(shuffled_candidates)
-        
+
         for epoch in range(num_epochs_to_run):
             starting_cnot = shuffled_candidates[epoch]
-            
-            # Calculate KL for the starting CNOT
+
             temp_kl_scores = score_circuit_kl_divergences(
-                add_cnots_and_measurements_to_circuit(base_combined_circuit, ng_circ1, [starting_cnot]), 
+                add_cnots_and_measurements_to_circuit(base_combined_circuit, ng_circ1, [starting_cnot]),
                 state_vec_probs_target1, state_vec_probs_target2, nshots
             )
-            if temp_kl_scores is not None and temp_kl_scores[0] is not None: 
+            if temp_kl_scores is not None and temp_kl_scores[0] is not None:
                 temp_kl_sum = temp_kl_scores[0] + temp_kl_scores[1]
                 print(f"\n--- Starting Epoch {epoch + 1}/{num_epochs_to_run} (Addition) with CNOT: {starting_cnot} (KL: {temp_kl_sum:.6f}) ---")
             else:
-                print(f"\n--- Starting Epoch {epoch + 1}/{num_epochs_to_run} ---")
+                print(f"\n--- Starting Epoch {epoch + 1}/{num_epochs_to_run} with CNOT: {starting_cnot} (KL calculation failed) ---")
                 continue
 
-            # If initial point CNOT is not beneficial, skip it
-            #if temp_kl_sum / initial_kl_sum >= ratio_kl_tol:  
-            if temp_kl_sum >= initial_kl_sum:     
-                print(f"  Skipping epoch: Single CNOT KL ({temp_kl_sum:.6f}) does not provide significant improvement over baseline ({initial_kl_sum:.6f}).")
+            if temp_kl_sum >= initial_kl_sum:
+                print(f"  Skipping epoch: Single CNOT KL ({temp_kl_sum:.6f}) does not improve over baseline ({initial_kl_sum:.6f}).")
                 continue
 
-            # Pass pre-calculated KL to the helper
             best_sequence_this_epoch, min_kl_this_epoch = _run_single_greedy_search_from_start(
                 circ1, circ2, state_vec_probs_target1, state_vec_probs_target2,
                 all_possible_single_cnots, starting_cnot, min_cnot_depth, nshots, kl_tol,
-                initial_kl_for_path=temp_kl_sum, 
+                initial_kl_for_path=temp_kl_sum,
                 max_cnot_depth=max_greedy_depth
             )
-            
+
             print(f"  Epoch {epoch + 1} best KL Sum: {min_kl_this_epoch:.6f}")
-            # Compare the ratio to update the best overall sequence
-            if min_kl_this_epoch / best_overall_kl_sum < ratio_kl_tol:
+            if min_kl_this_epoch < best_overall_kl_sum: # Simplified check for direct improvement
                 best_overall_kl_sum = min_kl_this_epoch
                 best_overall_sequence = best_sequence_this_epoch
                 print(f"  --> Epoch {epoch + 1} found a new overall best KL Sum: {best_overall_kl_sum:.6f}")
 
         # --- Greedy CNOT removal search ---
         if best_overall_sequence:
-            print("\n--- Starting Greedy CNOT Removal Search ---")
+            print("\n--- Starting Greedy CNOT Removal Search on Best Found Sequence ---")
             best_sequence_after_removal, best_kl_after_removal = _run_greedy_removal_search(
                 circ1, circ2, state_vec_probs_target1, state_vec_probs_target2,
                 best_overall_sequence, best_overall_kl_sum, 0, nshots
             )
-
-            # *** CHANGE 3: Use ratio to update after removal ***
-            if best_kl_after_removal / best_overall_kl_sum < ratio_kl_tol:
+            if best_kl_after_removal < best_overall_kl_sum: # Simplified check
                 best_overall_kl_sum = best_kl_after_removal
                 best_overall_sequence = best_sequence_after_removal
                 print(f"\n--> Removal search found a new overall best KL Sum: {best_overall_kl_sum:.6f}")
 
-    # --- Final Check (No Brute-Force Fallback) ---
+    # --- Final Check ---
     if not best_overall_sequence and best_overall_kl_sum >= initial_kl_sum:
-        print(f"\nGreedy search failed to improve baseline KL sum ({best_overall_kl_sum:.6f}) or found no sequence.")
-        print("Consider running an optional brute-force search.")
-    
+        print(f"\nGreedy search failed to improve baseline KL sum ({initial_kl_sum:.6f}) or found no sequence.")
+
     end_total_time = time.time()
     print(f"\nTotal search took: {end_total_time - start_total_time:.2f} seconds.")
-    
+
     return best_overall_sequence, best_overall_kl_sum
 
 
@@ -1440,3 +1444,582 @@ def find_best_cnot_sequence_iterative_n_wise(
         best_add_sequence,
         best_add_kl_sum
     )
+
+
+import time
+import itertools
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from qiskit import QuantumCircuit
+from qiskit.quantum_info import Statevector, DensityMatrix
+from quantum_functions import _process_target_state_input
+
+def build_kl_divergence_matrix_interaction(
+    circ1: QuantumCircuit,
+    circ2: QuantumCircuit,
+    state_probs_initial1: dict,
+    state_probs_initial2: dict,
+    state_vec_probs_target1: dict,
+    state_vec_probs_target2: dict,
+    nshots: int = 1000,
+    threshold: float = 0.05,
+    include_single_cnot_kl: bool = True
+):
+    """
+    Builds a matrix where M[i][j] represents the KL divergence of the circuit
+    formed by cnot_i followed by cnot_j.
+    
+    This function first identifies potential CNOT candidates by analyzing
+    the density matrix difference between the initial and target states,
+    and then calculates the KL divergence for single CNOTs and all CNOT pairs.
+
+    Args:
+        circ1 (QuantumCircuit): The first base quantum circuit.
+        circ2 (QuantumCircuit): The second base quantum circuit.
+        state_probs_initial1 (dict): Initial state probabilities for circ1.
+        state_probs_initial2 (dict): Initial state probabilities for circ2.
+        state_vec_probs_target1 (dict): Target state probabilities for circ1's part.
+        state_vec_probs_target2 (dict): Target state probabilities for circ2's part.
+        nshots (int): Number of shots for circuit simulation.
+        threshold (float): Threshold to identify significant off-diagonal elements.
+        include_single_cnot_kl (bool): If True, the diagonal M[i][i] will store
+                                       the KL divergence of the circuit with only cnot_i.
+
+    Returns:
+        np.ndarray: A square matrix where M[i][j] is the KL divergence for
+                    the sequence [cnot_i, cnot_j].
+        dict: A mapping from CNOT tuple to its index in the matrix.
+        list: The list of initial CNOT candidates used.
+        float: The initial KL divergence for the circuit with no CNOTs.
+    """
+    ng_circ1 = circ1.num_qubits
+    ng_circ2 = circ2.num_qubits
+    
+    print(f"\n--- Identifying Potential CNOT Linkers from Density Matrix Difference ---")
+
+
+    # --- State and Density Matrix Analysis ---
+    initial_cnot_config, stats = find_cnot_candidates_from_state_diff(
+        state_probs_initial1, state_probs_initial2,
+        state_vec_probs_target1, state_vec_probs_target2, 
+        threshold= threshold, verbose_print = True,
+        plot_filename = None, show_plot = True
+        )
+
+    # --- Calculate Baseline KL Divergence (no CNOTs) ---
+    base_combined_circuit = concatenate_circuits_with_separate_measurements(circ1, circ2)
+    base_circuit_no_cnots = add_cnots_and_measurements_to_circuit(base_combined_circuit, ng_circ1, [])
+    kl_divs_baseline = score_circuit_kl_divergences(base_circuit_no_cnots, state_vec_probs_target1, state_vec_probs_target2, nshots)
+    initial_kl_sum = kl_divs_baseline[0] + kl_divs_baseline[1] if kl_divs_baseline is not None else float('inf')
+    print(f"Initial KL Divergence (no CNOTs): {initial_kl_sum:.6f}")
+
+    # --- Start building the matrix with the identified candidates ---
+    num_candidates = len(initial_cnot_config)
+    kl_divergence_matrix = np.full((num_candidates, num_candidates), np.inf)
+    cnot_to_index = {tuple(cnot): i for i, cnot in enumerate(initial_cnot_config)}
+
+    print(f"\n--- Building KL Divergence Matrix ({num_candidates}x{num_candidates}) ---")
+
+    if include_single_cnot_kl:
+        print("Calculating KL for single CNOTs (diagonal elements)...")
+        for i, cnot_i in enumerate(initial_cnot_config):
+            trial_circuit = add_cnots_and_measurements_to_circuit(
+                base_combined_circuit, ng_circ1, [cnot_i]
+            )
+            kl_divs = score_circuit_kl_divergences(
+                trial_circuit, state_vec_probs_target1, state_vec_probs_target2, nshots
+            )
+            if kl_divs is not None:
+                kl_divergence_matrix[i, i] = kl_divs[0] + kl_divs[1]
+                # print(f"  KL for [{cnot_i}]: {kl_divergence_matrix[i, i]:.6f}")
+
+    print("Calculating KL for CNOT pairs (off-diagonal elements)...")
+    n_pairs_tested = 0
+    for cnot_i_val in initial_cnot_config:
+        for cnot_j_val in initial_cnot_config:
+            idx_i = cnot_to_index[tuple(cnot_i_val)]
+            idx_j = cnot_to_index[tuple(cnot_j_val)]
+
+            if idx_i == idx_j:
+                continue
+
+            n_pairs_tested += 1
+            trial_sequence = [cnot_i_val, cnot_j_val]
+            trial_circuit = add_cnots_and_measurements_to_circuit(
+                base_combined_circuit, ng_circ1, trial_sequence
+            )
+            kl_divs = score_circuit_kl_divergences(
+                trial_circuit, state_vec_probs_target1, state_vec_probs_target2, nshots
+            )
+            if kl_divs is not None:
+                kl_divergence_matrix[idx_i, idx_j] = kl_divs[0] + kl_divs[1]
+                # print(f"  KL for [{cnot_i_val}, {cnot_j_val}]: {kl_divergence_matrix[idx_i, idx_j]:.6f}")
+    
+    print(f"Total CNOT pairs tested: {n_pairs_tested}")
+    print("--- KL Divergence Matrix Built ---")
+
+    return kl_divergence_matrix, cnot_to_index, initial_cnot_config, initial_kl_sum
+
+
+def kl_to_qubo_matrix(kl_matrix: np.ndarray, initial_kl_sum: float) -> np.ndarray:
+    """
+    Builds a QUBO matrix from a KL divergence matrix.
+
+    This function transforms a matrix of KL divergences into a Quadratic Unconstrained
+    Binary Optimization (QUBO) matrix. The resulting matrix can be used by a
+    QUBO solver to find the optimal selection of CNOT gates that minimizes
+    the KL divergence of a quantum circuit.
+
+    The QUBO problem is formulated to minimize a cost function where the energy
+    of a solution (a set of selected CNOTs) corresponds to the circuit's
+    relative KL divergence.
+
+    Args:
+        kl_matrix (np.ndarray): A square matrix where:
+                                - kl_matrix[k, k] is the KL divergence of a circuit with a
+                                  single CNOT gate `k`.
+                                - kl_matrix[k, l] is the KL divergence of a circuit with
+                                  the sequence of CNOT gates `k` then `l`.
+        initial_kl_sum (float): The baseline KL divergence of the circuit with
+                                no CNOT gates. This value is used to calculate
+                                the cost relative to the zero-CNOT circuit.
+
+    Returns:
+        np.ndarray: The resulting QUBO matrix, Q. This is an upper triangular
+                    matrix (with the diagonal included) containing the coefficients
+                    for the QUBO objective function:
+                    E(x) = sum(Q_ij * x_i * x_j) for i <= j.
+                    
+    Raises:
+        ValueError: If kl_matrix is not a square matrix.
+    """
+    if kl_matrix.shape[0] != kl_matrix.shape[1]:
+        raise ValueError("kl_matrix must be a square matrix.")
+
+    num_vars = kl_matrix.shape[0]
+    qubo_matrix = np.zeros((num_vars, num_vars))
+
+    # A large penalty is assigned to invalid or infinite KL divergences to
+    # discourage the solver from selecting those CNOT gates or pairs.
+    INF_PENALTY = 1e9
+
+    # --- Step 1: Calculate Linear Coefficients (Diagonal Terms, Q_ii) ---
+    # These terms represent the cost of selecting a single CNOT gate.
+    for i in range(num_vars):
+        if not np.isinf(kl_matrix[i, i]):
+            # The linear cost is the single-gate KL divergence relative to the baseline.
+            cost_i = kl_matrix[i, i] - initial_kl_sum
+            qubo_matrix[i, i] = cost_i
+        else:
+            # Assign a large penalty for an infinite KL divergence.
+            qubo_matrix[i, i] = INF_PENALTY
+
+    # --- Step 2: Calculate Quadratic Coefficients (Off-Diagonal Terms, Q_ij) ---
+    # These terms represent the synergistic interaction cost of selecting a pair
+    # of CNOT gates, isolated from their individual contributions.
+    for i in range(num_vars):
+        for j in range(i + 1, num_vars):
+            kl_ij = kl_matrix[i, j]
+            kl_ji = kl_matrix[j, i]
+
+            if not np.isinf(kl_ij) and not np.isinf(kl_ji):
+                # We must choose *one* order to encode in Q_ij.
+                # The lowest KL divergence of the two orders is the target cost.
+                kl_best_order = min(kl_matrix[i, j], kl_matrix[j, i])
+                
+                # Get the pre-computed linear costs from the diagonal of the QUBO matrix.
+                cost_i = qubo_matrix[i, i]
+                cost_j = qubo_matrix[j, j]
+                
+                # Isolate the interaction cost using the BEST of the two orders.
+                # This simplifies the optimization: if the solver chooses i and j, 
+                # the cost will reflect the best physical sequence.
+                interaction_cost = (kl_best_order - initial_kl_sum) - cost_i - cost_j
+                qubo_matrix[i, j] = interaction_cost
+                
+            else:
+                # Assign a large penalty if the KL divergence for the pair is infinite.
+                qubo_matrix[i, j] = INF_PENALTY
+
+    return qubo_matrix
+
+import numpy as np
+import matplotlib.pyplot as plt
+#from qiskit.primitives import StatevectorEstimator
+from scipy.optimize import minimize
+from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+from qiskit_ibm_runtime import EstimatorV2 as Estimator
+from qiskit_ibm_runtime import SamplerV2 as Sampler
+
+def vqe_solver(
+    ansatz, # Renamed from 'cirquit' for common convention
+    hamiltonian,
+    backend,
+    optimizer_method: str = "COBYLA", # "L-BFGS-B | COBYLA
+    niter: int = 100
+):
+    """
+    Performs a Variational Quantum Eigensolver (VQE) optimization.
+
+    This function encapsulates the VQE workflow, including:
+    1. Creating an interaction observable from histogram data.
+    2. Setting up static and variable parameters for the quantum circuit.
+    3. Initializing the Qiskit StatevectorEstimator.
+    4. Running the optimization using scipy.optimize.minimize.
+    5. Collecting cost function values during optimization.
+    6. Updating parameters with optimized values.
+    7. (Optional) Plotting the energy minimization curve.
+
+    Args:
+        circuit (QuantumCircuit): The parameterized quantum circuit (ansatz).
+        act_percentages (list): Initial percentage values for parameters
+                                containing '_act_' in the circuit.
+        cost_func_wrapper (callable): The cost function to be minimized.
+                                      It MUST accept arguments in the following order:
+                                      cost_func_wrapper(current_variable_params_array,
+                                                        static_params_dict,
+                                                        circuit,
+                                                        observable,
+                                                        estimator,
+                                                        variable_param_objects_list)
+                                      Inside this function, you should combine
+                                      static_params_dict and map current_variable_params_array
+                                      to variable_param_objects_list to form the
+                                      full parameter dictionary for circuit binding.
+        min_ones_for_observable (int): Minimum number of '1's for filtering
+                                       histogram data when creating the observable.
+        optimizer_method (str): The optimization method to use for scipy.minimize
+                                (e.g., "L-BFGS-B", "COBYLA", "SLSQP").
+
+    Returns:
+        tuple: A tuple containing:
+            - result_object (OptimizeResult): The result object from scipy.optimize.minimize.
+            - optimized_full_params (dict): The dictionary of all parameters
+                                            with their final optimized values.
+            - cost_history (list): A list of cost function values recorded
+                                   during each optimization iteration.
+    """
+    # 1. Define the base options dictionary
+    options = {
+        "disp": False, # Optional: Set to True to display solver messages
+        "tol": 1e-4,   # Optional: Set the tolerance for termination
+        "maxiter":niter
+    }
+
+    num_qubits = ansatz.num_qubits # Get number of qubits from the circuit
+
+    # make quantum circuit compatible to the backend
+    pm = generate_preset_pass_manager(backend = backend, optimization_level=3)
+    ansatz_isa = pm.run(ansatz)
+
+    estimator = Estimator(mode=backend)
+    estimator.options.default_shots = 1024
+
+    # 4. Prepare initial guess for optimization initialize 0 vector
+    num_params = ansatz.num_parameters 
+    #x0_interaction = np.random.rand(num_params) * 2 * np.pi
+    #x0_interaction = np.zeros(num_params)
+    x0_interaction = np.ones(num_params)*np.pi/2
+    #x0_interaction = np.ones(num_params)*np.pi
+    
+    # in the context of the vqe_solver function scope.
+    iteration_data = {'counter': 0} 
+    cost_values = [] # List to store cost values at each iteration
+    
+    def cost_func_vqe(params, ansatz, hamiltonian, estimator):
+        """Return estimate of energy from estimator
+        Parameters:
+            params (ndarray): Array of ansatz parameters
+            ansatz (QuantumCircuit): Parameterized ansatz circuit
+            hamiltonian (SparsePauliOp): Operator representation of Hamiltonian
+            estimator (EstimatorV2): Estimator primitive instance
+            cost_history_dict: Dictionary for storing intermediate results
+    
+        Returns:
+            float: Energy estimate
+        """
+        pub = (ansatz, [hamiltonian], [params])
+        result = estimator.run(pubs=[pub]).result()
+        energy = result[0].data.evs[0]
+
+        return energy
+ 
+    def cost_func_wrapper(xk, ansatz, hamiltonian, estimator):
+        return  cost_func_vqe(xk, ansatz, hamiltonian, estimator) # Pass combined_qc
+
+    # Define the callback function for minimize
+    def callback_func(xk):
+        # Access the counter from the enclosing scope's dictionary
+        current_counter = iteration_data['counter']
+        if current_counter > 100:
+            print_criteria = 100
+        else:
+            print_criteria = 20
+
+        current_cost = cost_func_wrapper(xk, ansatz, hamiltonian, estimator)
+        cost_values.append(current_cost)
+
+        # Print the current cost only every 20 iterations
+        if current_counter % print_criteria == 0 or current_counter == 0:
+            print(f"Iteration {current_counter}: Current cost: {current_cost}")
+            
+        iteration_data['counter'] += 1 # Increment the counter
+
+    # 6. Call minimize with args
+    print(f"Starting optimization with method: {optimizer_method}")
+    result_interaction = minimize(
+        cost_func_wrapper,
+        x0_interaction,
+        # IMPORTANT: Pass static_params and variable_param_objects as fixed arguments
+        # The cost_func_wrapper will use xk (the first argument) with these to bind parameters.
+        args=(ansatz_isa, hamiltonian, estimator),
+        method=optimizer_method, # Use the passed optimizer_method
+        callback=callback_func, # Use the defined callback function
+        options=options,
+    )
+
+    print("\nOptimization Result:")
+    print(result_interaction)
+    print(f"\nFinal Energy: {result_interaction.fun}")
+
+    # Update the full parameter dictionary with optimized variable parameters
+    opt_values = result_interaction.x # opt_values is the numpy.ndarray
+       
+    opt_params_dict = dict(zip(ansatz.parameters, opt_values))
+    # The keys of this dictionary are the symbolic parameter objects
+
+    print("\nOptimized Full Parameters:")
+    for param, value in opt_params_dict.items():
+        # Now 'param' is the symbolic object with a '.name' attribute
+        print(f"  {param.name}: {value}")
+
+    # Return the results
+    return result_interaction, opt_params_dict, cost_values
+
+from qiskit.providers import Backend
+def evaluate_and_plot_ansatz(
+    # Use a '*' to make all subsequent arguments keyword-only
+    *,
+    ansatz: QuantumCircuit,
+    params: List[float],
+    backend: Backend,
+    shots: int = 1024,
+    title: str = "VQE Quantum Sampler Results",
+    figsize: Tuple[int, int] = (7, 5),
+    show_plot: bool = True,
+    filename: Optional[str] = None
+) -> Tuple[Dict[str, int], QuantumCircuit]:
+    """
+    Evaluates a quantum ansatz, optionally plots results, and returns the circuit and counts.
+
+    Args:
+        ansatz (QuantumCircuit): The quantum circuit to evaluate.
+        params (List[float]): The parameters to assign to the ansatz.
+        backend (Backend): The Qiskit backend (or simulator) to run on.
+        shots (int, optional): The number of shots for the measurement. Defaults to 1024.
+        title (str, optional): The title for the histogram plot.
+        figsize (Tuple[int, int], optional): The size of the plot figure.
+        show_plot (bool, optional): If True, displays the plot. Defaults to True.
+        filename (Optional[str], optional): If provided, saves the plot to this file.
+
+    Returns:
+        Tuple[Dict[str, int], QuantumCircuit]: A tuple containing:
+            - The dictionary of measurement counts.
+            - The bound and transpiled quantum circuit that was executed.
+            
+    Raises:
+        Exception: Propagates any exception that occurs during circuit execution,
+                   providing a more direct and informative error message.
+    """
+    # This 'try...except' is now cleaner. It lets errors propagate naturally.
+    # We remove 'return None' because it hides the true source of the error.
+    
+    sampler = Sampler(mode=backend)
+    bound_circuit = ansatz.copy()
+    bound_circuit.assign_parameters(params, inplace=True)
+    bound_circuit.measure_all()
+
+    # Transpile the circuit for the specific backend
+    pm = generate_preset_pass_manager(backend=backend, optimization_level=3)
+    transpiled_circuit = pm.run(bound_circuit)
+
+    # Run the job
+    job = sampler.run([transpiled_circuit], shots=shots)
+    pub_result = job.result()[0]
+    counts = pub_result.data.meas.get_counts()
+
+    # Plotting is now optional and controlled by 'show_plot'
+    if show_plot or filename:
+        sorted_counts = dict(sorted(counts.items()))
+        x_labels = list(sorted_counts.keys())
+        y_values = list(sorted_counts.values())
+
+        plt.figure(figsize=figsize)
+        plt.bar(x_labels, y_values)
+        plt.xlabel("Measurement Outcomes")
+        plt.ylabel("Counts")
+        plt.title(title)
+        plt.xticks(rotation=45, ha='right')
+        plt.tight_layout()
+        
+        if filename:
+            plt.savefig(filename, bbox_inches='tight')
+        
+        if show_plot:
+            plt.show()
+            
+        plt.close() # Close the figure to free memory after showing/saving
+
+    return counts, transpiled_circuit
+
+# ==============================================================================
+# PREREQUISITES: Define the necessary helper functions
+# These must be defined in your notebook cell before you can use them.
+# ==============================================================================
+import numpy as np
+from typing import List, Dict, Tuple
+
+# Assuming these functions are already defined in your environment as provided.
+# If not, make sure to include them before running the main block.
+def get_top_k_counts_little_endian(counts: dict, k: int = 1) -> list[str]:
+    """Extracts top k outcome strings from counts and converts to little-endian."""
+    sorted_items = sorted(counts.items(), key=lambda item: item[1], reverse=True)
+    top_k_strings_big_endian = [item[0] for item in sorted_items[:k]]
+    return [s[::-1] for s in top_k_strings_big_endian]
+
+def get_top_k_boolean_vectors(counts: dict, k: int = 1) -> list[list[bool]]:
+    """Extracts top k solutions from counts as boolean vectors."""
+    top_k_strings = get_top_k_counts_little_endian(counts, k)
+    return [[char == '1' for char in s] for s in top_k_strings]
+
+def map_vqe_solution_to_cnots(
+    boolean_vector: list[bool], 
+    cnot_candidates: list[tuple[int, int]]
+) -> list[tuple[int, int]]:
+    """Maps a boolean solution vector back to the CNOT gates it represents."""
+    return [cnot for is_selected, cnot in zip(boolean_vector, cnot_candidates) if is_selected]
+
+# ==============================================================================
+# --- VQE HYBRID SEARCH: Iterating through Top-k VQE Solutions ---
+# This block will run the search for k=3, 2, and 1, and find the best overall.
+# ==============================================================================
+from typing import List, Dict, Tuple, Optional
+import numpy as np
+
+# Make sure these helper functions are defined in your notebook
+# get_top_k_boolean_vectors, map_vqe_solution_to_cnots, etc.
+
+def run_vqe_hybrid_search(
+    vqe_counts: Dict[str, int],
+    initial_cnot_config: List[Tuple[int, int]],
+    circ1: QuantumCircuit,
+    circ2: QuantumCircuit,
+    state_probs_initial1: dict,
+    state_probs_initial2: dict,
+    state_vec_probs_target1: dict,
+    state_vec_probs_target2: dict,
+    num_solutions_to_test: int = 3,
+    min_cnot_depth: int = 1,
+    nshots: int = 1000,
+    threshold: float = 0.1,
+    kl_tol: float = 0.01,
+    ratio_kl_tol: float = 0.6,
+    max_greedy_depth: int = 30
+) -> Tuple[Optional[List[Tuple[int, int]]], float, Optional[int]]:
+    """
+    Performs a full hybrid VQE-classical search to find the best CNOT sequence.
+
+    This function takes the results from a VQE run (counts) and tests the top N
+    solutions. It processes them in reverse order (e.g., 3rd best, then 2nd, then 1st)
+    to prioritize potentially simpler, high-performing solutions first. For each VQE
+    solution, it runs a multi-epoch greedy search and tracks the overall best result.
+
+    Args:
+        vqe_counts (Dict[str, int]): The measurement counts from the VQE run.
+        initial_cnot_config (List[Tuple[int, int]]): The full list of CNOTs the VQE
+                                                     was optimizing over.
+        circ1, circ2 (QuantumCircuit): The base quantum circuits.
+        state_probs_initial1, state_probs_initial2 (dict): Initial state probabilities.
+        state_vec_probs_target1, state_vec_probs_target2 (dict): Target state probabilities.
+        num_solutions_to_test (int): The number of top VQE solutions to check (e.g., 3).
+        min_cnot_depth, nshots, threshold, kl_tol, ratio_kl_tol, max_greedy_depth:
+            Parameters to be passed directly to the internal `find_best_cnot_sequence_multi_epoch`
+            greedy search function.
+
+    Returns:
+        Tuple containing:
+        - Optional[List[Tuple[int, int]]]: The best CNOT sequence found. None if no
+          improvement was made over the baseline.
+        - float: The minimum combined KL divergence achieved.
+        - Optional[int]: The rank of the VQE solution that produced the best result.
+          None if no solution was better than the baseline.
+    """
+    # --- Initialization for tracking the best result ---
+    overall_best_kl_sum = float('inf')
+    overall_best_cnot_sequence = None
+    overall_best_rank = None
+    found_an_improvement = False
+
+    print("="*60)
+    print(f"--- Preparing to test Top {num_solutions_to_test} VQE solutions in REVERSE order ---")
+    print("="*60)
+    
+    top_k_solutions = get_top_k_boolean_vectors(vqe_counts, k=num_solutions_to_test)
+
+    if not top_k_solutions:
+        print("No VQE solutions found in the counts dictionary. Halting search.")
+        # Calculate baseline KL to return something meaningful
+        base_circuit = add_cnots_and_measurements_to_circuit(concatenate_circuits_with_separate_measurements(circ1, circ2), circ1.num_qubits, [])
+        kl1, kl2 = score_circuit_kl_divergences(base_circuit, state_vec_probs_target1, state_vec_probs_target2, nshots)
+        baseline_kl = kl1 + kl2 if kl1 is not None else float('inf')
+        return None, baseline_kl, None
+
+    # --- Loop through the solutions in REVERSE order ---
+    for i, solution_vector in reversed(list(enumerate(top_k_solutions))):
+        rank = i + 1
+        print(f"\n--- Testing VQE Solution (Rank {rank}/{len(top_k_solutions)}) ---")
+
+        vqe_selected_candidates = map_vqe_solution_to_cnots(solution_vector, initial_cnot_config)
+        
+        print(f"This VQE Solution corresponds to a candidate subset of {len(vqe_selected_candidates)} CNOTs:")
+        if vqe_selected_candidates:
+            for cnot in vqe_selected_candidates:
+                print(f"  q[{cnot[0]}] -> q[{cnot[1]}]")
+        else:
+            print("  (No CNOTs were selected). Skipping greedy search.")
+            continue
+
+        num_epochs_for_this_run = len(vqe_selected_candidates)
+        print(f"\nSetting number of greedy search epochs to {num_epochs_for_this_run} (one for each candidate).")
+
+        cnot_sequence_from_greedy, kl_sum_from_greedy = find_best_cnot_sequence_multi_epoch(
+            circ1=circ1,
+            circ2=circ2,
+            state_probs_initial1=state_probs_initial1,
+            state_probs_initial2=state_probs_initial2,
+            state_vec_probs_target1=state_vec_probs_target1,
+            state_vec_probs_target2=state_vec_probs_target2,
+            cnot_search_candidates=vqe_selected_candidates,
+            n_epochs=num_epochs_for_this_run, # Dynamically set
+            min_cnot_depth=min_cnot_depth,
+            nshots=nshots,
+            threshold=threshold,
+            kl_tol=kl_tol,
+            ratio_kl_tol=ratio_kl_tol,
+            max_greedy_depth=max_greedy_depth
+        )
+        
+        print(f"\nResult for (Rank {rank}): Final KL Sum = {kl_sum_from_greedy:.6f}")
+        if kl_sum_from_greedy < overall_best_kl_sum:
+            print(f"  >>> NEW OVERALL BEST SOLUTION FOUND! <<<")
+            overall_best_kl_sum = kl_sum_from_greedy
+            overall_best_cnot_sequence = cnot_sequence_from_greedy
+            overall_best_rank = rank
+            found_an_improvement = True
+            print(f"  New best KL sum: {overall_best_kl_sum:.6f}")
+            print(f"  Origin: VQE solution at rank {overall_best_rank}")
+        else:
+            print(f"  This result ({kl_sum_from_greedy:.6f}) did not beat the current best ({overall_best_kl_sum:.6f}).")
+
+    return overall_best_cnot_sequence, overall_best_kl_sum, overall_best_rank
