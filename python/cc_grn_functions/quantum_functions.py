@@ -140,7 +140,8 @@ def add_cnots_and_measurements_to_circuit(
                 control_q != target_q):
             raise ValueError(f"Invalid CNOT indices: ({control_q}, {target_q}). Qubits must be valid and distinct.")
 
-        circuit_with_cnots.cx(qr_all[control_q], qr_all[target_q])
+        circuit_with_cnots.crx(np.pi/2, qr_all[control_q], qr_all[target_q]) # Look for mixed potential states 
+        #circuit_with_cnots.cx(qr_all[control_q], qr_all[target_q]) # Look for entangled 
         #circuit_with_cnots.cy(qr_all[control_q], qr_all[target_q])
 
     # Add measurements after all CNOTs are applied
