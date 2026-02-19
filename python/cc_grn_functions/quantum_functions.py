@@ -955,7 +955,7 @@ def _run_single_greedy_search_from_start(
 
 def _run_greedy_removal_search(
     circ1, circ2, state_vec_probs_target1, state_vec_probs_target2,
-    initial_cnot_sequence, min_kl_sum_initial, min_cnot_depth, nshots
+    initial_cnot_sequence, min_kl_sum_initial, min_cnot_depth, nshots, kl_tol
 ):
     """
     [NEW HELPER] Runs a greedy search by removing CNOTs from an initial sequence.
@@ -999,7 +999,7 @@ def _run_greedy_removal_search(
                 current_kl_after_removal = kl_div1 + kl_div2
                 
                 # Check for absolute improvement over the current path score
-                if current_kl_after_removal < best_kl_after_removal:
+                if current_kl_after_removal < (best_kl_after_removal - (kl_tol * 0.3) ):
                     best_kl_after_removal = current_kl_after_removal
                     # Store the index for removal, which is unique
                     best_cnot_to_remove_index = i 
@@ -1127,21 +1127,22 @@ def find_best_cnot_sequence_multi_epoch(
             if min_kl_this_epoch < best_overall_kl_sum: # Simplified check for direct improvement
                 best_overall_kl_sum = min_kl_this_epoch
                 best_overall_sequence = best_sequence_this_epoch
-                print(f"  --> Epoch {epoch + 1} found a new overall best KL Sum: {best_overall_kl_sum:.6f}")
-            
-        # --- Greedy CNOT removal search ---
-        if best_overall_sequence:
-            print("\n--- Starting Greedy CNOT Removal Search on Best Found Sequence ---")
-            rem_hist, best_sequence_after_removal, best_kl_after_removal = _run_greedy_removal_search(
-                circ1, circ2, state_vec_probs_target1, state_vec_probs_target2,
-                best_overall_sequence, best_overall_kl_sum, 0, nshots
-            )
-            evaluation_history.extend(rem_hist)
+                print(f"  --> Epoch {epoch + 1} found a new overall best KL Sum: {best_overall_kl_sum:.6f}")            
+                # --- Greedy CNOT removal search ---
+                if best_overall_sequence:
+                    print("\n--- Starting Greedy CNOT Removal Search on Best Found Sequence ---")
+                    rem_hist, best_sequence_after_removal, best_kl_after_removal = _run_greedy_removal_search(
+                        circ1, circ2, state_vec_probs_target1, state_vec_probs_target2,
+                        best_overall_sequence, best_overall_kl_sum, 0, nshots, kl_tol = kl_tol
+                    )
+                    
 
-            if best_kl_after_removal < best_overall_kl_sum: # Simplified check
-                best_overall_kl_sum = best_kl_after_removal
-                best_overall_sequence = best_sequence_after_removal
-                print(f"\n--> Removal search found a new overall best KL Sum: {best_overall_kl_sum:.6f}")
+                    evaluation_history.extend(rem_hist)
+
+                    if best_kl_after_removal < best_overall_kl_sum: # Simplified check
+                        best_overall_kl_sum = best_kl_after_removal
+                        best_overall_sequence = best_sequence_after_removal
+                        print(f"\n--> Removal search found a new overall best KL Sum: {best_overall_kl_sum:.6f}")
 
     # --- THE FINAL SELECTION LOGIC (Occam's Razor) ---
     if evaluation_history:
