@@ -1270,7 +1270,7 @@ def _single_cnot_deletion_search(
             # IMPROVEMENT CHECK:
             # We accept a deletion if the new KL is strictly better than our current best.
             # To avoid chasing noise (4.1 -> 4.09), you could use:
-            if kl_sum < min_kl_after_del:
+            if kl_sum < (min_kl_after_del - 0.5*kl_tol):
                 min_kl_after_del = kl_sum
                 best_deletion_index = i
                 
