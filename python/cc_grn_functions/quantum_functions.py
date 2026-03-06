@@ -2032,3 +2032,84 @@ def run_vqe_hybrid_search(
             print(f"  This result ({kl_sum_from_greedy:.6f}) did not beat the current best ({overall_best_kl_sum:.6f}).")
 
     return overall_best_cnot_sequence, overall_best_kl_sum, overall_best_rank
+
+import pandas as pd
+from collections import defaultdict
+import numpy as np # Ensure numpy is imported
+
+def summarize_interaction_network(
+    topology: list[tuple[int, int]],
+    angles: list[float],
+    gene_list: list[str]
+) -> tuple[pd.DataFrame, dict, set]:
+    """
+    Summarizes the discovered interaction network and returns the results.
+
+    Args:
+        topology (list): The list of (control, target) qubit pairs.
+        angles (list): The list of optimized CRX angles corresponding to the topology.
+        gene_list (list): The master list of all gene names, ordered by qubit index.
+
+    Returns:
+        A tuple containing:
+        - pd.DataFrame: A DataFrame with detailed information for each interaction.
+        - dict: A dictionary summarizing interactions grouped by the "hub" (control) gene.
+        - set: A set of all unique gene names involved in the discovered network.
+    """
+    if not topology:
+        print("No interactions found in the topology.")
+        # Return empty structures
+        return pd.DataFrame(), {}, set()
+
+    # --- 1. Create a list of dictionaries for the DataFrame ---
+    interaction_data = []
+    for i, (control_q, target_q) in enumerate(topology):
+        angle_rad = angles[i]
+        
+        interaction_data.append({
+            "Control Qubit": control_q,
+            "Target Qubit": target_q,
+            "Control Gene": gene_list[control_q],
+            "Target Gene": gene_list[target_q],
+            "Interaction": f"{gene_list[control_q]} -> {gene_list[target_q]}",
+            "CRX Angle (rad)": angle_rad, # Store as float for further use
+        })
+
+    # Create the DataFrame
+    df = pd.DataFrame(interaction_data)
+    
+    # Add a formatted column for display purposes
+    df["CRX Angle (deg)"] = np.rad2deg(df["CRX Angle (rad)"])
+
+    # --- 2. Group interactions by hub genes ---
+    hubs = defaultdict(list)
+    all_involved_qubits = set()
+    for _, row in df.iterrows():
+        hubs[row["Control Gene"]].append(row["Target Gene"])
+        all_involved_qubits.add(row["Control Qubit"])
+        all_involved_qubits.add(row["Target Qubit"])
+
+    # --- 3. Identify the full set of interacting genes ---
+    all_involved_genes = {gene_list[q] for q in all_involved_qubits}
+
+    # --- 4. Print the summary for immediate inspection ---
+    print("\n" + "="*60)
+    print("--- Interpreted Interaction Network Summary ---")
+    print("="*60)
+    print("\n--- Detailed Interaction List ---")
+    # Format the DataFrame for printing to keep it clean
+    df_display = df.copy()
+    df_display["CRX Angle (rad)"] = df_display["CRX Angle (rad)"].map('{:.4f}'.format)
+    df_display["CRX Angle (deg)"] = df_display["CRX Angle (deg)"].map('{:.2f}°'.format)
+    print(df_display.to_string())
+    
+    print("\n--- Hub-based Interaction Summary ---")
+    for hub_gene, targets in hubs.items():
+        print(f"Gene '{hub_gene}' interacts with: {', '.join(targets)}")
+        
+    print("\n--- Full Set of Interacting Genes ---")
+    print(sorted(list(all_involved_genes)))
+    print("="*60)
+
+    # --- 5. Return the structured data ---
+    return df, dict(hubs), all_involved_genes
