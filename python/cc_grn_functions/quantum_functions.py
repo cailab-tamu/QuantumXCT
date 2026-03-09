@@ -2037,79 +2037,140 @@ import pandas as pd
 from collections import defaultdict
 import numpy as np # Ensure numpy is imported
 
-def summarize_interaction_network(
+import pandas as pd
+from collections import defaultdict
+import numpy as np
+from qiskit import QuantumCircuit
+
+def analyze_and_summarize_network(
+    circ1: QuantumCircuit,
+    circ2: QuantumCircuit,
     topology: list[tuple[int, int]],
     angles: list[float],
-    gene_list: list[str]
+    state_vec_probs_target1: dict,
+    state_vec_probs_target2: dict,
+    gene_list: list[str],
+    nshots: int = 5000
 ) -> tuple[pd.DataFrame, dict, set]:
     """
-    Summarizes the discovered interaction network and returns the results.
+    Performs a comprehensive analysis of an optimized circuit topology.
+    
+    1.  Conducts an ablation study to quantify the contribution of each gate.
+    2.  Summarizes the network structure by identifying interaction hubs.
+    3.  Returns all results in structured formats (DataFrame, dict, set).
 
     Args:
-        topology (list): The list of (control, target) qubit pairs.
-        angles (list): The list of optimized CRX angles corresponding to the topology.
-        gene_list (list): The master list of all gene names, ordered by qubit index.
+        circ1, circ2: The initial state circuits.
+        topology: The final, ordered (control, target) topology.
+        angles: The final, optimized CRX angles for the topology.
+        state_vec_probs_target1/2: The target distributions.
+        gene_list: The master list of gene names, ordered by qubit index.
+        nshots: The number of shots for simulation.
 
     Returns:
         A tuple containing:
-        - pd.DataFrame: A DataFrame with detailed information for each interaction.
-        - dict: A dictionary summarizing interactions grouped by the "hub" (control) gene.
+        - pd.DataFrame: A DataFrame detailing the contribution of each gate.
+        - dict: A dictionary summarizing interactions grouped by "hub" (control) gene.
         - set: A set of all unique gene names involved in the discovered network.
     """
     if not topology:
-        print("No interactions found in the topology.")
-        # Return empty structures
+        print("No topology provided for analysis.")
         return pd.DataFrame(), {}, set()
 
-    # --- 1. Create a list of dictionaries for the DataFrame ---
-    interaction_data = []
-    for i, (control_q, target_q) in enumerate(topology):
-        angle_rad = angles[i]
-        
-        interaction_data.append({
-            "Control Qubit": control_q,
-            "Target Qubit": target_q,
-            "Control Gene": gene_list[control_q],
-            "Target Gene": gene_list[target_q],
-            "Interaction": f"{gene_list[control_q]} -> {gene_list[target_q]}",
-            "CRX Angle (rad)": angle_rad, # Store as float for further use
-        })
-
-    # Create the DataFrame
-    df = pd.DataFrame(interaction_data)
+    print("\n" + "="*70)
+    print("--- Comprehensive Interaction Network Analysis & Summary ---")
+    print("="*70)
     
-    # Add a formatted column for display purposes
-    df["CRX Angle (deg)"] = np.rad2deg(df["CRX Angle (rad)"])
+    base_combined_circuit = concatenate_circuits_with_separate_measurements(circ1, circ2)
+    
+    # --- Step 1: Calculate Baseline KL Divergence ---
+    baseline_circuit = add_crx_gates_and_measurements_to_circuit(base_combined_circuit, circ1.num_qubits, [], [])
+    kl_divs_baseline = score_circuit_kl_divergences(baseline_circuit, state_vec_probs_target1, state_vec_probs_target2, nshots)
+    current_kl = sum(kl_divs_baseline) if kl_divs_baseline and None not in kl_divs_baseline else float('inf')
 
-    # --- 2. Group interactions by hub genes ---
+    # --- Step 2: Perform Ablation Study (Sequential Gate Contribution) ---
+    contribution_data = []
+    contribution_data.append({
+        "Step": 0, "Interaction": "Baseline (0 gates)",
+        "CRX Angle (rad)": np.nan, "KL Divergence": current_kl,
+        "KL Change": 0.0, "Cumulative KL Reduction": 0.0
+    })
+
+    for i, (gate_topology, gate_angle) in enumerate(zip(topology, angles)):
+        step_num = i + 1
+        current_sequence_topology = topology[:step_num]
+        current_sequence_angles = angles[:step_num]
+        
+        trial_circuit = add_crx_gates_and_measurements_to_circuit(
+            base_combined_circuit, circ1.num_qubits, current_sequence_topology, current_sequence_angles
+        )
+        kl_divs = score_circuit_kl_divergences(trial_circuit, state_vec_probs_target1, state_vec_probs_target2, nshots)
+        
+        if kl_divs and None not in kl_divs:
+            new_kl = sum(kl_divs)
+            kl_change = new_kl - current_kl
+            
+            control_gene = gene_list[gate_topology[0]]
+            target_gene = gene_list[gate_topology[1]]
+            
+            contribution_data.append({
+                "Step": step_num,
+                "Interaction": f"{control_gene} -> {target_gene}",
+                "CRX Angle (rad)": gate_angle,
+                "KL Divergence": new_kl,
+                "KL Change": kl_change,
+                "Cumulative KL Reduction": new_kl - contribution_data[0]["KL Divergence"]
+            })
+            current_kl = new_kl
+        else:
+            print(f"Warning: Could not score circuit at step {step_num}. Skipping.")
+
+    # --- Step 3: Create and Format the Final DataFrame ---
+    contribution_df = pd.DataFrame(contribution_data)
+    
+    total_reduction = abs(contribution_df.iloc[0]["KL Divergence"] - contribution_df.iloc[-1]["KL Divergence"])
+    if total_reduction > 1e-9: # Avoid division by zero
+        # Normalize by absolute change for intuitive percentage
+        contribution_df["% Contribution"] = (abs(contribution_df["KL Change"]) / total_reduction) * 100
+    else:
+        contribution_df["% Contribution"] = 0.0
+        
+    contribution_df["CRX Angle (deg)"] = np.rad2deg(contribution_df["CRX Angle (rad)"])
+
+    # --- 4. Generate Hub and Gene Set Summaries ---
     hubs = defaultdict(list)
-    all_involved_qubits = set()
-    for _, row in df.iterrows():
-        hubs[row["Control Gene"]].append(row["Target Gene"])
-        all_involved_qubits.add(row["Control Qubit"])
-        all_involved_qubits.add(row["Target Qubit"])
+    all_involved_genes = set()
+    for _, row in contribution_df.iloc[1:].iterrows(): # Skip the baseline row
+        interaction_parts = row["Interaction"].split(" -> ")
+        control_gene, target_gene = interaction_parts[0], interaction_parts[1]
+        hubs[control_gene].append(target_gene)
+        all_involved_genes.add(control_gene)
+        all_involved_genes.add(target_gene)
 
-    # --- 3. Identify the full set of interacting genes ---
-    all_involved_genes = {gene_list[q] for q in all_involved_qubits}
-
-    # --- 4. Print the summary for immediate inspection ---
-    print("\n" + "="*60)
-    print("--- Interpreted Interaction Network Summary ---")
-    print("="*60)
-    print("\n--- Detailed Interaction List ---")
-    # Format the DataFrame for printing to keep it clean
-    df_display = df.copy()
-    df_display["CRX Angle (rad)"] = df_display["CRX Angle (rad)"].map('{:.4f}'.format)
-    df_display["CRX Angle (deg)"] = df_display["CRX Angle (deg)"].map('{:.2f}°'.format)
+    # --- 5. Print All Summaries for Immediate Inspection ---
+    print("\n--- Gate Contribution Analysis (Ablation Study) ---")
+    df_display = contribution_df.copy()
+    # Format columns for better printing
+    formatters = {
+        "KL Divergence": '{:.4f}',
+        "KL Change": '{:.4f}',
+        "Cumulative KL Reduction": '{:.4f}',
+        "CRX Angle (rad)": '{:.4f}',
+        "CRX Angle (deg)": '{:.2f}°',
+        "% Contribution": '{:.2f}%'
+    }
+    for col, f_str in formatters.items():
+        if col in df_display.columns:
+            df_display[col] = df_display[col].map(f_str.format)
     print(df_display.to_string())
     
     print("\n--- Hub-based Interaction Summary ---")
-    for hub_gene, targets in hubs.items():
-        print(f"Gene '{hub_gene}' interacts with: {', '.join(targets)}")
+    for hub_gene, targets in sorted(hubs.items()):
+        print(f"Gene '{hub_gene}' interacts with: {', '.join(sorted(targets))}")
         
     print("\n--- Full Set of Interacting Genes ---")
     print(sorted(list(all_involved_genes)))
-    print("="*60)
+    print("="*70)
 
-    # --- 5. Return the structured data ---
-    return df, dict(hubs), all_involved_genes
+    # --- 6. Return the Structured Data ---
+    return contribution_df, dict(hubs), all_involved_genes
