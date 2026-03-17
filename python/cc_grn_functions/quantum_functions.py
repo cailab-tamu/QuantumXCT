@@ -2033,9 +2033,6 @@ def run_vqe_hybrid_search(
 
     return overall_best_cnot_sequence, overall_best_kl_sum, overall_best_rank
 
-import pandas as pd
-from collections import defaultdict
-import numpy as np # Ensure numpy is imported
 
 import pandas as pd
 from collections import defaultdict
@@ -2128,10 +2125,12 @@ def analyze_and_summarize_network(
     # --- Step 3: Create and Format the Final DataFrame ---
     contribution_df = pd.DataFrame(contribution_data)
     
-    total_reduction = abs(contribution_df.iloc[0]["KL Divergence"] - contribution_df.iloc[-1]["KL Divergence"])
-    if total_reduction > 1e-9: # Avoid division by zero
-        # Normalize by absolute change for intuitive percentage
-        contribution_df["% Contribution"] = (abs(contribution_df["KL Change"]) / total_reduction) * 100
+    # NEW LOGIC: Use Baseline KL as the denominator for scientific grounding
+    baseline_kl = contribution_df.iloc[0]["KL Divergence"]
+    
+    if baseline_kl > 1e-9: 
+        # Percentage of the original error/divergence explained by this specific gate
+        contribution_df["% Contribution"] = (abs(contribution_df["KL Change"]) / baseline_kl) * 100
     else:
         contribution_df["% Contribution"] = 0.0
         
@@ -2174,3 +2173,142 @@ def analyze_and_summarize_network(
 
     # --- 6. Return the Structured Data ---
     return contribution_df, dict(hubs), all_involved_genes
+
+import networkx as nx
+import matplotlib.pyplot as plt
+from matplotlib.patches import Ellipse
+import numpy as np
+
+def plot_quantum_relay_network(
+    topology, 
+    gene_list, 
+    gl_ct1, 
+    gl_ct2, 
+    valid_lr_pairs, 
+    contribution_df=None,
+    title="Biologically Constrained Interaction Network",
+    ct1_name="Cancer Cells",
+    ct2_name="Fibroblasts",
+    figsize=(16, 10),
+    fname=None
+):
+    G = nx.Graph()
+    
+    # 1. Identify active signaling from topology
+    raw_edges = [(gene_list[c], gene_list[t]) for c, t in topology]
+    
+    # 2. Build edges first to determine node "activity" (degree)
+    edge_weights = {}
+    if contribution_df is not None:
+        baseline_kl = contribution_df.iloc[0]['KL Divergence']
+        for _, row in contribution_df.iterrows():
+            if "Baseline" in str(row['Interaction']): continue
+            parts = str(row['Interaction']).split(' -> ')
+            if len(parts) == 2:
+                u, v = parts[0].strip(), parts[1].strip()
+                # Weighting based on KL Change impact
+                weight = (abs(row['KL Change']) / baseline_kl) * 35 
+                edge_weights[(u, v)] = max(weight, 1.5)
+
+    final_edges = []
+    for u_gene, v_gene in raw_edges:
+        w = edge_weights.get((u_gene, v_gene), 2.0)
+        cell_u = 'CT1' if u_gene in gl_ct1 else 'CT2'
+        cell_v = 'CT1' if v_gene in gl_ct1 else 'CT2'
+        
+        if cell_u == cell_v:
+            final_edges.append((u_gene, v_gene, {'weight': w}))
+        else:
+            # Check for LR bridge re-direction
+            found_bridge = False
+            for lr_1, lr_2 in valid_lr_pairs:
+                c1_lr = 'CT1' if lr_1 in gl_ct1 else 'CT2'
+                c2_lr = 'CT1' if lr_2 in gl_ct1 else 'CT2'
+                
+                # Only use as bridge if it spans the two different cells
+                if (c1_lr != c2_lr): 
+                    final_edges.append((lr_1, lr_2, {'weight': w}))
+                    # Connect original genes to the bridge endpoints
+                    if cell_u == c1_lr: final_edges.append((u_gene, lr_1, {'weight': 2.0}))
+                    else: final_edges.append((u_gene, lr_2, {'weight': 2.0}))
+                    
+                    if cell_v == c2_lr: final_edges.append((v_gene, lr_2, {'weight': 2.0}))
+                    else: final_edges.append((v_gene, lr_1, {'weight': 2.0}))
+                    found_bridge = True
+                    break
+            
+            if not found_bridge:
+                final_edges.append((u_gene, v_gene, {'weight': w}))
+
+    G.add_edges_from(final_edges)
+
+    # 3. Add all nodes and define custom labels
+    node_labels = {}
+    for i, gene in enumerate(gene_list):
+        cell = 'CT1' if gene in gl_ct1 else ('CT2' if gene in gl_ct2 else 'Unknown')
+        G.add_node(gene, cell=cell)
+        
+        # LABEL LOGIC: Show Gene Name ONLY if connected. Always show q-index.
+        if G.degree(gene) > 0:
+            node_labels[gene] = f"q{i}\n{gene}"
+        else:
+            node_labels[gene] = f"q{i}"
+
+    # 4. Positioning: Manual rotation for inactive nodes to avoid older NetworkX errors
+    pos = {}
+    c1_center, c2_center = -5.0, 5.0
+    
+    for cell_type, center in [('CT1', c1_center), ('CT2', c2_center)]:
+        nodes_in_cell = [n for n, d in G.nodes(data=True) if d['cell'] == cell_type]
+        active = [n for n in nodes_in_cell if G.degree(n) > 0]
+        inactive = [n for n in nodes_in_cell if G.degree(n) == 0]
+        
+        # Place active nodes in the center lane
+        if active:
+            pos.update(nx.spring_layout(G.subgraph(active), center=(center, 0), scale=1.5, seed=42))
+        
+        # Place inactive nodes on a rotated shell to avoid horizontal signaling lines
+        if inactive:
+            n_inactive = len(inactive)
+            radius = 3.5
+            # Offset by 45 degrees (pi/4) so nodes stay away from the horizontal axis
+            angle_offset = np.pi / 4 
+            for j, node in enumerate(inactive):
+                theta = 2.0 * np.pi * j / n_inactive + angle_offset
+                pos[node] = np.array([center + radius * np.cos(theta), radius * np.sin(theta)])
+
+    # 5. Drawing
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # PI requested alpha 0.15 for cell ellipses
+    ax.add_patch(Ellipse((c1_center, 0), 8.5, 11, color='skyblue', alpha=0.15, zorder=0))
+    ax.add_patch(Ellipse((c2_center, 0), 8.5, 11, color='salmon', alpha=0.15, zorder=0))
+    
+    ax.text(c1_center, 5.2, ct1_name, ha='center', fontsize=16, fontweight='bold', color='blue')
+    ax.text(c2_center, 5.2, ct2_name, ha='center', fontsize=16, fontweight='bold', color='red')
+
+    # Draw Nodes
+    for cell_type, color, border in [('CT1', 'skyblue', 'blue'), ('CT2', 'salmon', 'red')]:
+        nodelist = [n for n, d in G.nodes(data=True) if d['cell'] == cell_type]
+        nx.draw_networkx_nodes(G, pos, nodelist=nodelist, node_color=color, 
+                               node_size=3500, edgecolors=border, ax=ax)
+
+    nx.draw_networkx_labels(G, pos, labels=node_labels, font_size=10, font_weight='bold', ax=ax)
+
+    # Draw Edges (Dashed purple for cross-cell, Solid gray for internal)
+    for u, v, data in G.edges(data=True):
+        is_inter = G.nodes[u]['cell'] != G.nodes[v]['cell']
+        nx.draw_networkx_edges(G, pos, edgelist=[(u, v)], 
+                               width=data.get('weight', 2.0),
+                               edge_color='purple' if is_inter else 'gray',
+                               style='--' if is_inter else '-', 
+                               alpha=0.6, ax=ax)
+
+    plt.title(title, fontsize=18, pad=30)
+    plt.axis('off')
+    
+    if fname: 
+        plt.savefig(fname, bbox_inches='tight', transparent=True)
+        print(f"Figure saved as {fname}")
+        
+    plt.show()
