@@ -15,7 +15,7 @@
 K              = 3;          % number of inter-cellular entanglement links
 TIME_BUDGET    = 240;        % seconds per run (~4 min)
 OPTIMIZER      = 1;          % 1 = fminunc  2 = fminsearch  3 = fmincon
-N_RESTARTS     = 3;          % random restarts per configuration
+N_RESTARTS     = 1;          % random restarts per configuration
 ANGLE_INIT     = 'random';   % 'random' (-pi,pi) | 'pi' (warm start)
 GATE_TYPE      = 'cry';      % 'cry' | 'crx' | 'cx'
 SKIP_BIDIRECT  = false;      % skip configs containing both A→B and B→A
