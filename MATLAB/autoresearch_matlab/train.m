@@ -24,9 +24,9 @@ OUTPUT_FILE = 'train_results.mat';
 % Shared data and quantum state setup
 % ---------------------------------------------------------------------------
 
-prepare   % defines: cg1_mapped, cg2_mapped, extragates, configsK vars,
-          %          costfn, targettop, FCGenes, states_f, states_c,
-          %          pt_f_mo/co, pt_c_mo/co, f0_*, FibroblastGenes, CancerGenes
+% prepare  % defines: cg1_mapped, cg2_mapped, extragates, configsK vars,
+           %          costfn, targettop, FCGenes, states_f, states_c,
+           %          pt_f_mo/co, pt_c_mo/co, f0_*, FibroblastGenes, CancerGenes
 
 % ---------------------------------------------------------------------------
 % Configuration search space
@@ -101,10 +101,10 @@ idx = randi(numComb);
     end
 
     % --- fast fail: abort this config if cost is invalid ---
-    if isnan(best_local_cost) || best_local_cost > 1e6
-        fprintf('\nFAIL: config %d produced invalid cost (%.4g)\n', idx, best_local_cost);
-        continue;
-    end
+    % if isnan(best_local_cost) || best_local_cost > 1e6
+    %     fprintf('\nFAIL: config %d produced invalid cost (%.4g)\n', idx, best_local_cost);
+    %     continue;
+    % end
 
     % apply best angles to circuit and store
     for k = 1:n
