@@ -51,10 +51,11 @@ ema_beta   = 0.9;
 best_cost  = inf;
 step       = 0;   % counts valid (non-skipped) configurations processed
 
-for idx = 1:numComb
+%for idx = 1:numComb
 
+idx = randi(numComb);
     % skip configurations that contain a reversed duplicate (both A→B and B→A)
-    if any(ismember(fliplr(configsK{idx}), configsK{idx}, "rows")), continue; end
+    % if any(ismember(fliplr(configsK{idx}), configsK{idx}, "rows")), continue; end
 
     % build parameterised circuit: base init + optional intracellular gate + CRY search gates
     layer_inte = [];
@@ -128,7 +129,7 @@ for idx = 1:numComb
 
     fprintf('\rconfig %04d/%d (%.1f%%) | cost: %.6f | best: %.6f | elapsed: %.0fs    ', ...
         idx, numComb, pct, debiased, best_cost, elapsed);
-end
+%end
 
 fprintf('\n');   % newline after final \r
 
@@ -160,30 +161,3 @@ save(OUTPUT_FILE, ...
     'K', 'OPTIMIZER', 'N_RESTARTS');
 fprintf('results saved → %s\n', OUTPUT_FILE);
 
-% ---------------------------------------------------------------------------
-% Visualisation: top-3 numerically best + all biologically ideal configs
-% ---------------------------------------------------------------------------
-
-figure;
-plot(Y);  yline(idealY, 'r');
-xlabel('Config index');  ylabel('KL cost');
-title(sprintf('K=%d  optimizer=%d  restarts=%d', K, OPTIMIZER, N_RESTARTS));
-
-for topk = 1:length(top_idx)
-    t = hlp.fun_drawreshisto(top_idx(topk), Cc, configsK, ...
-        pt_c_mo, pt_c_co, pt_f_mo, pt_f_co, ...
-        FCGenes, states_c, states_f, targettop);
-    title(t, sprintf('Best #%d  KL=%.4f', topk, Y(top_idx(topk))));
-    subtitle(t, sprintf('θ = [%s]', sprintf('%.2f  ', Theta{top_idx(topk)})));
-end
-
-ideal_sorted_idx = find(isideal);
-[~, ord] = sort(idealY);
-ideal_sorted_idx = ideal_sorted_idx(ord);
-for topk = 1:length(ideal_sorted_idx)
-    t = hlp.fun_drawreshisto(ideal_sorted_idx(topk), Cc, configsK, ...
-        pt_c_mo, pt_c_co, pt_f_mo, pt_f_co, ...
-        FCGenes, states_c, states_f, targettop);
-    title(t, sprintf('Ideal #%d  KL=%.4f', topk, idealY(ord(topk))));
-    subtitle(t, sprintf('θ = [%s]', sprintf('%.2f  ', Theta{ideal_sorted_idx(topk)})));
-end
