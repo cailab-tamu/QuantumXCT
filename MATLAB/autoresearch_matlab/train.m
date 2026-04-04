@@ -51,9 +51,7 @@ ema_beta   = 0.9;
 best_cost  = inf;
 step       = 0;   % counts valid (non-skipped) configurations processed
 
-%for idx = 1:numComb
-
-idx = randi(numComb);
+for idx = 1:numComb
     % skip configurations that contain a reversed duplicate (both A→B and B→A)
     % if any(ismember(fliplr(configsK{idx}), configsK{idx}, "rows")), continue; end
 
@@ -129,7 +127,7 @@ idx = randi(numComb);
 
     fprintf('\rconfig %04d/%d (%.1f%%) | cost: %.6f | best: %.6f | elapsed: %.0fs    ', ...
         idx, numComb, pct, debiased, best_cost, elapsed);
-%end
+end
 
 fprintf('\n');   % newline after final \r
 
