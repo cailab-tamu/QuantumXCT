@@ -24,9 +24,9 @@ OUTPUT_FILE = 'train_results.mat';
 % Shared data and quantum state setup
 % ---------------------------------------------------------------------------
 
-prepare   % defines: cg1_mapped, cg2_mapped, extragates, configsK vars,
-          %          costfn, targettop, FCGenes, states_f, states_c,
-          %          pt_f_mo/co, pt_c_mo/co, f0_*, FibroblastGenes, CancerGenes
+% prepare  % defines: cg1_mapped, cg2_mapped, extragates, configsK vars,
+           %          costfn, targettop, FCGenes, states_f, states_c,
+           %          pt_f_mo/co, pt_c_mo/co, f0_*, FibroblastGenes, CancerGenes
 
 % ---------------------------------------------------------------------------
 % Configuration search space
@@ -52,9 +52,8 @@ best_cost  = inf;
 step       = 0;   % counts valid (non-skipped) configurations processed
 
 for idx = 1:numComb
-
     % skip configurations that contain a reversed duplicate (both A→B and B→A)
-    if any(ismember(fliplr(configsK{idx}), configsK{idx}, "rows")), continue; end
+    % if any(ismember(fliplr(configsK{idx}), configsK{idx}, "rows")), continue; end
 
     % build parameterised circuit: base init + optional intracellular gate + CRY search gates
     layer_inte = [];
@@ -100,10 +99,10 @@ for idx = 1:numComb
     end
 
     % --- fast fail: abort this config if cost is invalid ---
-    if isnan(best_local_cost) || best_local_cost > 1e6
-        fprintf('\nFAIL: config %d produced invalid cost (%.4g)\n', idx, best_local_cost);
-        continue;
-    end
+    % if isnan(best_local_cost) || best_local_cost > 1e6
+    %     fprintf('\nFAIL: config %d produced invalid cost (%.4g)\n', idx, best_local_cost);
+    %     continue;
+    % end
 
     % apply best angles to circuit and store
     for k = 1:n
@@ -160,30 +159,3 @@ save(OUTPUT_FILE, ...
     'K', 'OPTIMIZER', 'N_RESTARTS');
 fprintf('results saved → %s\n', OUTPUT_FILE);
 
-% ---------------------------------------------------------------------------
-% Visualisation: top-3 numerically best + all biologically ideal configs
-% ---------------------------------------------------------------------------
-
-figure;
-plot(Y);  yline(idealY, 'r');
-xlabel('Config index');  ylabel('KL cost');
-title(sprintf('K=%d  optimizer=%d  restarts=%d', K, OPTIMIZER, N_RESTARTS));
-
-for topk = 1:length(top_idx)
-    t = hlp.fun_drawreshisto(top_idx(topk), Cc, configsK, ...
-        pt_c_mo, pt_c_co, pt_f_mo, pt_f_co, ...
-        FCGenes, states_c, states_f, targettop);
-    title(t, sprintf('Best #%d  KL=%.4f', topk, Y(top_idx(topk))));
-    subtitle(t, sprintf('θ = [%s]', sprintf('%.2f  ', Theta{top_idx(topk)})));
-end
-
-ideal_sorted_idx = find(isideal);
-[~, ord] = sort(idealY);
-ideal_sorted_idx = ideal_sorted_idx(ord);
-for topk = 1:length(ideal_sorted_idx)
-    t = hlp.fun_drawreshisto(ideal_sorted_idx(topk), Cc, configsK, ...
-        pt_c_mo, pt_c_co, pt_f_mo, pt_f_co, ...
-        FCGenes, states_c, states_f, targettop);
-    title(t, sprintf('Ideal #%d  KL=%.4f', topk, idealY(ord(topk))));
-    subtitle(t, sprintf('θ = [%s]', sprintf('%.2f  ', Theta{ideal_sorted_idx(topk)})));
-end
