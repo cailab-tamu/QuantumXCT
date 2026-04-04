@@ -10,7 +10,11 @@
       "Read(//c/Users/jingc/Documents/GitHub/QuantumXCT/.claude/**)",
       "Read(//c/Users/jingc/Documents/GitHub/QuantumXCT/.claude//**)",
       "mcp__matlab__evaluate_matlab_code",
-      "WebFetch(domain:nicholasrhodes.substack.com)"
+      "WebFetch(domain:nicholasrhodes.substack.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:api.github.com)",
+      "Bash(curl:*)"
     ]
   },
   "enableAllProjectMcpServers": true,
