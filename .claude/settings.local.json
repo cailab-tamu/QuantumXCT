@@ -1,12 +1,4 @@
 {
-  "permissions": {
-    "allow": [
-      "Bash(gh api:*)",
-      "Bash(python3 -c \"import json,sys; [print\\(f[''''name'''']\\) for f in json.load\\(sys.stdin\\)]\")",
-      "WebFetch(domain:raw.githubusercontent.com)",
-      "WebFetch(domain:github.com)"
-    ]
-  },
   "mcpServers": {
     "matlab": {
       "command": "C:\\Users\\jingc\\.claude\\mcp-servers\\matlab-mcp-core-server\\bin\\launch-matlab-mcp.cmd",

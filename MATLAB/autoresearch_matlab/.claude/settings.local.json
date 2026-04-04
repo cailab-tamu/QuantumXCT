@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/jingc/AppData/Roaming/Claude/**)",
+      "Read(//c/Users/jingc/.claude/**)",
+      "Read(//c/Users/jingc/Documents/GitHub/QuantumXCT/MATLAB/.claude/**)",
+      "Read(//c/Users/jingc/Documents/GitHub/QuantumXCT/MATLAB/.claude//**)",
+      "Bash(claude mcp:*)",
+      "Bash(git:*)",
+      "Read(//c/Users/jingc/Documents/GitHub/QuantumXCT/.claude/**)",
+      "Read(//c/Users/jingc/Documents/GitHub/QuantumXCT/.claude//**)",
+      "mcp__matlab__evaluate_matlab_code"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "matlab"
+  ]
+}
