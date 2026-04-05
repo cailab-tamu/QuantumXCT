@@ -12,7 +12,7 @@
 % Hyperparameters  (edit these directly)
 % ---------------------------------------------------------------------------
 
-K              = 4;          % number of inter-cellular entanglement links
+K              = 5;          % number of inter-cellular entanglement links
 TIME_BUDGET    = 240;        % seconds per run (~4 min)
 OPTIMIZER      = 1;          % 1 = fminunc  2 = fminsearch  3 = fmincon
 N_RESTARTS     = 1;          % random restarts per configuration
