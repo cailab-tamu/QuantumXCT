@@ -12,7 +12,6 @@ Two cell types interact in co-culture; their gene expression shifts. The model e
 
 - Qubits 1–3: fibroblast genes (TGFB1, PDGFRB, IL6)
 - Qubits 4–7: cancer cell genes (STAT3, IL6RorST, TGFBR1or2, PDGFB)
-- Ground-truth topology: `targettop = [7 2; 1 6; 3 5]` (fixed biology, never change)
 - Fixed intracellular gate: `CX(4,5)` (STAT3–IL6RorST within cancer cells)
 
 ## Running an experiment
@@ -40,10 +39,10 @@ These can be sent as separate `evaluate_matlab_code` calls or chained. The MCP s
 
 Extract summary metrics:
 ```bash
-grep "^best_cost:\|^ideal_cost:\|^n_ideal:" run.log
+grep "^best_cost:\|^n_sampled:\|^gate_type:" run.log
 ```
 
-**Primary metric**: `best_cost` (lower = better). Watch that `ideal_cost` (cost for the biologically correct topology) tracks downward with it — if `best_cost` drops but `ideal_cost` stays high, the optimizer found a numerically good but biologically meaningless topology.
+**Primary metric**: `best_cost` (lower = better).
 
 ## File roles
 
@@ -60,10 +59,14 @@ grep "^best_cost:\|^ideal_cost:\|^n_ideal:" run.log
 ## Hyperparameters in `train.m`
 
 ```matlab
-K           = 3;         % number of inter-cellular links (try 3 or 4)
-OPTIMIZER   = 1;         % 1=fminunc  2=fminsearch  3=fmincon
-N_RESTARTS  = 5;         % random restarts per configuration
-ANGLE_INIT  = 'random';  % 'random'(-pi,pi) or 'pi'(warm start)
+K              = 5;          % number of inter-cellular links
+TIME_BUDGET    = 480;        % seconds per run
+OPTIMIZER      = 1;          % 1=fminunc  2=fminsearch  3=fmincon
+N_RESTARTS     = 1;          % random restarts per configuration
+ANGLE_INIT     = 'random';   % 'random'(-pi,pi) or 'pi'(warm start)
+GATE_TYPE      = 'cry';      % 'cry' | 'crx' | 'cx'
+SKIP_BIDIRECT  = false;
+SKIP_NONUNIQUE = true;
 ```
 
 Other levers: gate type (`cryGate` / `crxGate` / `cxGate`), anti-bidirectional skip filter, unique-qubit filter, bidirectional KL cost terms, EMA beta.
@@ -73,24 +76,22 @@ Other levers: gate type (`cryGate` / `crxGate` / `cxGate`), anti-bidirectional s
 1. Create branch: `git checkout -b experiment/<tag>` (tag = date, e.g. `apr3`)
 2. First run is always baseline — run `train.m` as-is before making changes
 3. Edit `train.m` → `git commit -am "..."` → run → extract metrics → log to `results.tsv`
-4. If `best_cost` improved and `ideal_cost` did not worsen: keep commit. Otherwise: `git reset --hard HEAD~1`
+4. If `best_cost` improved: keep commit. Otherwise: `git reset --hard HEAD~1`
 
 ## `results.tsv` format
 
 Tab-separated. Do not commit this file.
 
 ```
-commit	best_cost	ideal_cost	n_ideal	status	description
-a1b2c3d	0.201337	0.318204	6	keep	baseline K=3 CRY fminunc 5 restarts
+commit	best_cost	status	description
+a1b2c3d	0.201337	keep	baseline K=3 CRY fminunc 5 restarts
 ```
 
 - `status`: `keep`, `discard`, or `crash`
-- `ideal_cost`: `NA` if `n_ideal = 0`
-- `n_ideal`: configurations matching `targettop` that passed the skip filter
 
 ## Saved outputs
 
-`train_results.mat` contains: `Y` (scores), `Cc` (circuits), `Theta` (optimised angles), `configsK` (all configurations), `isideal`, `idealY`, plus the four distributions and metadata. Load it without re-running to do further analysis or visualization.
+`train_results.mat` contains: `Y` (scores), `Cc` (circuits), `Theta` (optimised angles), `configsK` (all configurations), plus the four distributions and metadata. Load it without re-running to do further analysis or visualization.
 
 ## Simplicity criterion
 
