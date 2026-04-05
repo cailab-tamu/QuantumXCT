@@ -13,7 +13,7 @@
 % ---------------------------------------------------------------------------
 
 K              = 5;          % number of inter-cellular entanglement links
-TIME_BUDGET    = 240;        % seconds per run (~4 min)
+TIME_BUDGET    = 480;        % seconds per run (~8 min)
 OPTIMIZER      = 1;          % 1 = fminunc  2 = fminsearch  3 = fmincon
 N_RESTARTS     = 1;          % random restarts per configuration
 ANGLE_INIT     = 'random';   % 'random' (-pi,pi) | 'pi' (warm start)
