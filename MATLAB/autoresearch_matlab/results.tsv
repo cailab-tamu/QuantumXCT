@@ -1,0 +1,16 @@
+commit	best_cost	n_sampled	status	description
+3324205	1.168915	213	keep	baseline K=3 CRY fminunc N_RESTARTS=5
+af06a0a	1.143137	287	keep	N_RESTARTS=3 more coverage improves best
+3c0d793	1.074550	813	keep	N_RESTARTS=1 maximize configs sampled
+447d3bb	1.139875	727	discard	SKIP_BIDIRECT=true prunes too aggressively
+0ff0102	1.300861	1495	discard	GATE_TYPE=crx worse than cry despite more coverage
+4f31cef	0.691978	417	keep	K=4 major improvement 35% drop in best_cost
+249f212	0.902296	1352	discard	ANGLE_INIT=pi worse with K=4 random beats warm start
+4fde94d	0.887398	1050	discard	fmincon K=4 bounds constrain away from true minimum
+1edc8f1	0.516461	587	keep	K=5 25% improvement trend K=3<4<5
+03dd4d3	0.580957	218	discard	K=6 too sparse 0.16% coverage worse than K=5
+c2746fb	0.666102	151	discard	N_RESTARTS=2 K=5 coverage beats quality
+471daf3	0.554630	1607	discard	TIME_BUDGET=480 2x samples still worse than best 0.516
+cc11029	0.616253	334	discard	fminsearch slower fewer configs worse minima than fminunc
+2f523b9	0.439343	985	keep	SKIP_NONUNIQUE=true faster skip allows more valid configs 15% improvement
+a89c2a6	0.546706	995	discard	SKIP_BIDIRECT+NONUNIQUE combined over-prunes good configs

@@ -11,5 +11,5 @@ CellType2Genes = ["STAT3","IL6RorST","TGFBR1or2","PDGFB"];
 tags = ["Fibroblasts (Mo)", "Cancer Cells (Mo)", "Fibroblasts (Co)", "Cancer Cells (Co)"];
 extragates = cxGate(4,5);
 
-qmXct(sce, CellType1Genes, CellType2Genes, tags, targettoplinkers, extragates);
+qmXctSearch(sce, CellType1Genes, CellType2Genes, tags, targettoplinkers, extragates);
 

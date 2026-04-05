@@ -17,7 +17,7 @@ There are no build steps, lint commands, or test runners. Scripts are run direct
 
 ### Core Computation Pipeline
 
-The main optimization workflow lives in `qmXct.m` / `qmXct_v2.m`:
+The main optimization workflow lives in `qmXctSearch.m` / `qmXctBidirectional.m`:
 
 1. **Data ingestion** — `hlp.getn()` extracts binary gene expression patterns from an `sce` struct (`.X` genes×cells, `.g` gene names, `.c_batch_id`, `.c_cell_id`) and converts them to probability distributions.
 2. **Quantum state initialization** — gene expression probability amplitudes become initial quantum state amplitudes via `initGate()`, wrapped with `compositeGate()` to map onto specific qubit subsets.
@@ -26,7 +26,7 @@ The main optimization workflow lives in `qmXct.m` / `qmXct_v2.m`:
 5. **Scoring** — `hlp.i_kldiverg()` computes symmetrized KL divergence (scaled ×10) between simulated and observed co-culture patterns. Lower score = better topology match.
 6. **Visualization** — `hlp.fun_drawreshisto()` renders a 2×2 panel: quantum circuit diagram, link labels, and pattern histograms for both cell types.
 
-`qmXct_v2.m` extends v1 by adding explicit co-culture initial states for bidirectional interaction analysis (four KL terms: forward+backward for each cell type).
+`qmXctBidirectional.m` extends the baseline by adding explicit co-culture initial states for bidirectional interaction analysis (four KL terms: forward+backward for each cell type).
 
 ### Key Data Structures
 
@@ -44,7 +44,7 @@ The main optimization workflow lives in `qmXct.m` / `qmXct_v2.m`:
 - Qubits 1–3: fibroblast cell type genes
 - Qubits 4–7: cancer cell type genes
 - 24 total directed inter-cellular links (3×4 directions × 2 ways)
-- A fixed intracellular link CX(4,5) within cancer cells is added as an extra gate in `s14a/b`
+- A fixed intracellular link CX(4,5) within cancer cells is added as an extra gate in `08_run_qmXct_full.m` / `09_run_qmXct_minimal.m`
 
 ### Helper Namespace (`+hlp/`)
 
@@ -60,21 +60,22 @@ All shared utilities live in the `+hlp` MATLAB package and are called as `hlp.fu
 | `fun_drawreshisto.m` | 4-panel visualization: circuit diagram, link list (with `*` for target links), histograms for both cell types comparing monoculture/co-culture/predicted |
 | `permn.m` | Memory-safe permutation-with-repetition generator; used for enumerating binary patterns |
 
-### Numbered Experiment Scripts (chronological research progression)
+### Experiment Scripts (chronological research progression)
 
 | File | What changed / what was tested |
 |---|---|
-| `s9e_..._topooneway.m` | K=3, one-way KL only (mono→co). Baseline pipeline. Adds fixed CX(4,5) intracellular link. |
-| `s9f_..._fwdbwd.m` | K=3, adds bidirectional KL (forward + reverse circuits). Tests if reverse direction helps. |
-| `s10a_..._optim.m` | Replaces fixed CX with parameterized **CRY gates**; uses `fminunc` to optimize angles across all K=3 configs. |
-| `s10b_..._optim.m` | Narrows to target topology only; uses **CRX gates** and 10 independent `fminsearch` trials. |
-| `s11a_Xct_test.m` | Incomplete integration test with real data — sets up expression matrices but doesn't finish analysis. |
-| `s12a_..._cx_entry_order.m` | Tests all 3!=6 orderings of 3 CX gates; confirms non-adjacent CX gates commute (order doesn't matter). |
-| `s13a_k4_linkmatrix.m` | Extends to **K=4** links; filters configs where all 6 qubits are used; accepts if ≥3/4 links match target. |
-| `s14a_fixed_procedure.m` | Clean wrapper: calls `qmXct()` with hardcoded fibroblast/cancer genes, target topology, and CX(4,5) extra gate. |
-| `s14b_fixed_procedure.m` | Minimal two-line variant of s14a. |
+| `01_k3_cx_kl_oneway.m` | K=3, one-way KL only (mono→co). Baseline pipeline. Adds fixed CX(4,5) intracellular link. |
+| `02_k3_cx_kl_bidirectional.m` | K=3, adds bidirectional KL (forward + reverse circuits). Tests if reverse direction helps. |
+| `03_k3_cry_optimize_allconfigs.m` | Replaces fixed CX with parameterized **CRY gates**; uses `fminunc` to optimize angles across all K=3 configs. |
+| `03b_k3_cry_optimize_allconfigs_piinit.m` | Same as 03 but with π warm-start initial angles. |
+| `04_k3_crx_optimize_target.m` | Narrows to target topology only; uses **CRX gates** and 10 independent `fminsearch` trials. |
+| `05_k3_integration_test.m` | Incomplete integration test with real data — sets up expression matrices but doesn't finish analysis. |
+| `06_k3_cx_gate_order.m` | Tests all 3!=6 orderings of 3 CX gates; confirms non-adjacent CX gates commute (order doesn't matter). |
+| `07_k4_topology_search.m` | Extends to **K=4** links; filters configs where all 6 qubits are used; accepts if ≥3/4 links match target. |
+| `08_run_qmXct_full.m` | Clean wrapper: calls `qmXctSearch()` with hardcoded fibroblast/cancer genes, target topology, and CX(4,5) extra gate. |
+| `09_run_qmXct_minimal.m` | Minimal two-line variant of 08. |
 
-`test_a1.m` is a scratchpad demonstrating basic quantum circuit construction (Hadamard, RY, controlled-RY) and statevector measurement.
+`demo_basic_quantum_gates.m` is a scratchpad demonstrating basic quantum circuit construction (Hadamard, RY, controlled-RY) and statevector measurement.
 
 ### Supporting Modules
 
@@ -86,9 +87,9 @@ All shared utilities live in the `+hlp` MATLAB package and are called as `hlp.fu
 **`interact_simulation/`**
 - `reconstructFromHistogram.m` — Inverts histogram counting: converts a 2^m frequency vector back to a binary m×N gene expression matrix (inverse of `hlp.getn`).
 
-**`simudata_cci.m`** — Synthetic data generator: creates ground-truth single-cell matrices with programmed A→B ligand-receptor (L1-R1) interaction. Used for benchmarking.
+**`gen_synthetic_cci_data.m`** — Synthetic data generator: creates ground-truth single-cell matrices with programmed A→B ligand-receptor (L1-R1) interaction. Used for benchmarking.
 
-**`PCAlgorithm.m` / `pc_algrithm_causal_net.m`** — Complete PC causal discovery algorithm (skeleton learning via conditional independence + edge orientation via v-structures and Meek's rules). Python port in `pc_algrithm_causal_net.py`.
+**`PCAlgorithm.m` / `demo_pc_algorithm.m`** — Complete PC causal discovery algorithm (skeleton learning via conditional independence + edge orientation via v-structures and Meek's rules). Python port in `pc_algrithm_causal_net.py`.
 
 **`untitled.py`** — QuTiP Bloch sphere animation of RY rotation on |0⟩, |1⟩, |+⟩, |-⟩ states, saved as GIF.
 
@@ -99,7 +100,7 @@ All shared utilities live in the `+hlp` MATLAB package and are called as `hlp.fu
 load('sevengenes_test.mat')
 
 % Run quantum interaction search (K=3 links, two cell type gene sets)
-[Y, configsK] = qmXct(sce, genes1, genes2, tags, target_links, 3)
+[Y, configsK] = qmXctSearch(sce, genes1, genes2, tags, target_links, 3)
 
 % Find best configuration
 [~, idx] = min(Y);
@@ -111,7 +112,7 @@ hlp.fun_drawreshisto(idx, Cc, configsK, pt_f_mo, pt_c_mo, pt_f_co, pt_c_co, gene
 
 ## Key Scientific Findings Encoded in Scripts
 
-- **Gate order does not matter** for non-adjacent qubits (confirmed by `s12a`).
-- **Bidirectional KL** (v2 / s9f) gives more robust topology identification than one-way.
-- **CRY/CRX parameterization** (s10a/b) allows continuous optimization on top of the discrete topology search.
-- **K=4** (s13a) can recover K=3 ground truth if 3 of 4 links match, offering redundancy tolerance.
+- **Gate order does not matter** for non-adjacent qubits (confirmed by `06_k3_cx_gate_order.m`).
+- **Bidirectional KL** (`qmXctBidirectional` / `02`) gives more robust topology identification than one-way.
+- **CRY/CRX parameterization** (`03`/`04`) allows continuous optimization on top of the discrete topology search.
+- **K=4** (`07_k4_topology_search.m`) can recover K=3 ground truth if 3 of 4 links match, offering redundancy tolerance.

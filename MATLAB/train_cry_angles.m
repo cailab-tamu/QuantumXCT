@@ -1,5 +1,5 @@
 % train.m  –  optimize CRY gate angles over all K-link configurations.
-% Runs prepare.m for shared data/state setup, then searches for the
+% Runs setup_workspace.m for shared data/state setup, then searches for the
 % quantum circuit topology that minimises the one-way KL cost.
 %
 % Output handling follows karpathy/autoresearch/train.py:
@@ -24,7 +24,7 @@ OUTPUT_FILE = 'train_results.mat';
 % Shared data and quantum state setup
 % ---------------------------------------------------------------------------
 
-prepare   % defines: cg1_mapped, cg2_mapped, extragates, configsK vars,
+setup_workspace   % defines: cg1_mapped, cg2_mapped, extragates, configsK vars,
           %          costfn, targettop, FCGenes, states_f, states_c,
           %          pt_f_mo/co, pt_c_mo/co, f0_*, FibroblastGenes, CancerGenes
 
