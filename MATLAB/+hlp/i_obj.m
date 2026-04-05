@@ -2,9 +2,6 @@ function [y] = i_obj(theta, pt_f, pt_c, C)
     n = length(theta);
     for k = 1:n
         C.Gates(end-(k-1)).Angles = theta(k);
-        %C.Gates(end-1).Angles = theta(2);
-        %C.Gates(end-2).Angles = theta(3);
-        %C.Gates(end-3).Angles = theta(4);
     end
 
     S = simulate(C);
