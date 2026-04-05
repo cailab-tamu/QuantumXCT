@@ -19,7 +19,7 @@ N_RESTARTS     = 1;          % random restarts per configuration
 ANGLE_INIT     = 'random';   % 'random' (-pi,pi) | 'pi' (warm start)
 GATE_TYPE      = 'cry';      % 'cry' | 'crx' | 'cx'
 SKIP_BIDIRECT  = false;      % skip configs containing both A→B and B→A
-SKIP_NONUNIQUE = false;      % skip configs whose qubits don't cover both bags
+SKIP_NONUNIQUE = true;       % skip configs whose qubits don't cover both bags
 OUTPUT_FILE    = 'train_results.mat';
 
 % ---------------------------------------------------------------------------
