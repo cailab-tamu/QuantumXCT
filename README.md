@@ -23,7 +23,7 @@ QuantumXCT/
 │   ├── LR_databases/                  ← Ligand-receptor reference databases
 │   └── simCellsSpace/                 ← Simulated dataset generation
 │
-├── MATLAB/                            ← Original MATLAB implementation
+├── MATLAB/                            ← MATLAB implementation
 ├── manuscript/                        ← Datasets and manuscript figures
 └── README.md                          ← This file
 ```
