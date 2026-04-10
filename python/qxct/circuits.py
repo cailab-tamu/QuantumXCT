@@ -1,21 +1,31 @@
 import numpy as np
-from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
-from qiskit.quantum_info import Statevector, DensityMatrix
-from qiskit.circuit.library import Initialize
-from qiskit_aer import AerSimulator
-from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
-from qiskit_ibm_runtime import SamplerV2 as Sampler
-from qiskit.visualization import plot_histogram
-from scipy.special import rel_entr
-from scipy.optimize import minimize
 import matplotlib.pyplot as plt
 import seaborn as sns
 import itertools
 import random
 import time
+from collections import defaultdict
+from typing import List, Union, Set, Dict, Tuple, Optional, Callable
+import pandas as pd
+import networkx as nx
+from matplotlib.patches import Ellipse
+
+from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
+from qiskit.quantum_info import Statevector, DensityMatrix
+from qiskit.circuit.library import Initialize
+from qiskit.providers import Backend
+from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+from qiskit.visualization import plot_histogram
+from qiskit_aer import AerSimulator
+from qiskit_ibm_runtime import SamplerV2 as Sampler
+from qiskit_ibm_runtime import EstimatorV2 as Estimator
+
+from scipy.special import rel_entr
+from scipy.optimize import minimize
+
 
 # --- Modified create_initial_circuit function ---
-def create_initial_circuit2(sparse_amplitude_dict):
+def build_initial_state_circuit(sparse_amplitude_dict):
     """
     Creates a quantum circuit initialized to a given state vector.
     This function now directly accepts a sparse dictionary, infers num_qubits,
@@ -105,7 +115,7 @@ def concatenate_circuits_with_separate_measurements(circ1: QuantumCircuit, circ2
 
     return circ_all
 
-def add_cnots_and_measurements_to_circuit(
+def apply_entanglement_topology(
     base_circuit: QuantumCircuit,
     circ1_num_qubits: int,
     global_cnot_configurations: list[tuple[int, int]]
@@ -255,7 +265,6 @@ def calculate_kl_divergence(p_dist: dict, q_dist: dict, epsilon=1e-9) -> float:
     return kl_div
 
 # --- NEW HELPER FUNCTION ---
-from typing import List, Union, Set, Dict, Tuple, Optional
 def _process_target_state_input(target_input: Union[dict, list, np.ndarray]) -> Tuple[np.ndarray, int]:
     """Converts a dictionary, list, or array to a normalized complex NumPy array."""
     if isinstance(target_input, dict):
@@ -357,7 +366,6 @@ def score_circuit_kl_divergences(
 
     return kl_div1, kl_div2
 
-from typing import Tuple
 
 def plot_measurement_histograms(
     circuit: QuantumCircuit,
@@ -475,7 +483,7 @@ def optimize_crx_angles(
     nshots: int = 1000,
     etol: float = 1e-6,
     opt_method: str = 'COBYLA', # Optimization method to use "L-BFGS-B", "COBYLA", etc.
-    initial_angle_value: float = np.pi # Default initial angle for all CRX gates
+    initial_angle_value: float = 0.0 # Default initial angle for all CRX gates
 ):
     """
     Optimizes the rotation angles of CRX gates placed according to a given CNOT topology
@@ -503,7 +511,7 @@ def optimize_crx_angles(
     if num_crx_gates == 0:
         print("No CNOT topology provided for CRX optimization. Returning baseline KL sum.")
         base_combined_circuit = concatenate_circuits_with_separate_measurements(circ1, circ2)
-        base_circuit_with_measurements = add_cnots_and_measurements_to_circuit(
+        base_circuit_with_measurements = apply_entanglement_topology(
             base_combined_circuit, ng_circ1, [] # No CNOTs
         )
         kl_div1, kl_div2 = score_circuit_kl_divergences(
@@ -606,171 +614,6 @@ def create_cnot_pairs_from_locations(
                 cnot_pairs.add((control_q, target_q))
                 
     return cnot_pairs
-
-def find_best_cnot_sequence_brute_force(
-    circ1: QuantumCircuit,
-    circ2: QuantumCircuit,
-    state_vec_probs_target1: list or np.ndarray,
-    state_vec_probs_target2: list or np.ndarray,
-    max_cnot_depth: int = 1, # Limit the depth for practical reasons
-    nshots: int = 1000,
-    kl_tol: float = 0.01
-):
-    """
-    Performs a brute-force search to find the optimal sequence of CNOT gates
-    between two quantum circuit "chunks" (circ1 and circ2) up to a specified depth.
-    It evaluates all possible permutations of CNOTs and returns the sequence
-    that yields the lowest combined KL divergence.
-
-    Args:
-        circ1 (QuantumCircuit): The first quantum circuit (e.g., circ_bell).
-        circ2 (QuantumCircuit): The second quantum circuit (e.g., circ_ghz_ish).
-        state_vec_probs_target1 (list or np.array): The amplitudes of the target state vector
-                                                     for the first classical register (c_measure1).
-        state_vec_probs_target2 (list or np.array): The amplitudes of the target state vector
-                                                     for the second classical register (c_measure2).
-        max_cnot_depth (int): The maximum number of CNOT gates to include in a sequence.
-                              Be cautious: computational cost grows exponentially with this value.
-        nshots (int): The number of shots for the simulation. Defaults to 1000.
-
-    Returns:
-        tuple: A tuple containing (best_cnot_sequence, min_kl_sum).
-               - best_cnot_sequence: A list of (global_control_idx, global_target_idx) tuples
-                                     representing the optimal sequence of CNOTs found.
-                                     An empty list if no CNOTs improve the baseline.
-               - min_kl_sum: The minimum combined KL divergence found.
-    """
-    # Define a global tolerance for KL divergence stopping criteria
-    ng_circ1 = circ1.num_qubits
-    ng_circ2 = circ2.num_qubits
-    num_total_qubits = ng_circ1 + ng_circ2
-
-    print(f"\n--- Starting Brute-Force CNOT Sequence Optimization (Total Qubits: {num_total_qubits}, Max Depth: {max_cnot_depth}) ---")
-    print(f"Number of qubits in chunk 1: {ng_circ1}")
-    print(f"Number of qubits in chunk 2: {ng_circ2}")
-
-    # 1. Evaluate baseline (no CNOTs)
-    base_combined_circuit = concatenate_circuits_with_separate_measurements(circ1, circ2)
-    base_circuit_with_measurements = add_cnots_and_measurements_to_circuit(
-        base_combined_circuit, ng_circ1, []
-    )
-    kl_div1_no_cnot, kl_div2_no_cnot = score_circuit_kl_divergences(
-        base_circuit_with_measurements,
-        state_vec_probs_target1,
-        state_vec_probs_target2,
-        nshots
-    )
-    initial_kl_sum = kl_div1_no_cnot + kl_div2_no_cnot if kl_div1_no_cnot is not None and kl_div2_no_cnot is not None else float('inf')
-
-    min_kl_sum = initial_kl_sum
-    best_cnot_sequence = [] # List of (global_control, global_target) tuples
-
-    print(f"\nBaseline (No CNOTs) KL Sum: {initial_kl_sum:.6f}")
-    print(f"Initial best KL sum: {min_kl_sum:.6f} (from baseline)")
-
-    # Generate all possible single CNOTs between the two chunks (global indices)
-    all_possible_single_cnots = []
-    for control_q1_idx in range(ng_circ1):
-        for target_q2_idx in range(ng_circ2):
-            # CNOT from chunk1 to chunk2
-            all_possible_single_cnots.append((control_q1_idx, ng_circ1 + target_q2_idx))
-            # CNOT from chunk2 to chunk1
-            all_possible_single_cnots.append((ng_circ1 + target_q2_idx, control_q1_idx))
-
-    print(f"\n Number of possible single cnots {len(all_possible_single_cnots)}")
-    # Brute-force search for the best sequence of CNOTs up to max_cnot_depth
-    start_time = time.time()
-    for num_cnots in range(1, max_cnot_depth + 1):
-        print(f"\n--- Testing combinations with {num_cnots} CNOTs ---")
-        # Use permutations to account for order, as CNOT order matters
-        for cnot_combination in itertools.permutations(all_possible_single_cnots, num_cnots):
-            temp_cnot_sequence = list(cnot_combination)
-
-            # Create circuit with current CNOT sequence
-            temp_base_circuit = concatenate_circuits_with_separate_measurements(circ1, circ2)
-            temp_circuit_with_cnots = add_cnots_and_measurements_to_circuit(
-                temp_base_circuit, ng_circ1, temp_cnot_sequence
-            )
-
-            kl_div1, kl_div2 = score_circuit_kl_divergences(
-                temp_circuit_with_cnots,
-                state_vec_probs_target1,
-                state_vec_probs_target2,
-                nshots
-            )
-
-            if kl_div1 is not None and kl_div2 is not None:
-                current_kl_sum = kl_div1 + kl_div2
-                # print(f"  Testing CNOT sequence {temp_cnot_sequence}: KL Sum {current_kl_sum:.6f}") # For debugging brute force
-
-                if current_kl_sum < min_kl_sum:
-                    min_kl_sum = current_kl_sum
-                    best_cnot_sequence = temp_cnot_sequence
-                    print(f"  --> New best sequence found: {best_cnot_sequence} with KL Sum: {min_kl_sum:.6f}")
-                
-                # Check for early stopping criterion
-                if min_kl_sum < kl_tol:
-                    print(f"  KL sum ({min_kl_sum:.6f}) below tolerance {kl_tol}. Stopping early.")
-                    search_complete_early = True
-                    break # Exit inner loop
-
-    end_time = time.time()
-    print(f"Brute-Force CNOT search (max_depth={max_cnot_depth}) took: {end_time - start_time:.2f} seconds")
-    
-    # If no CNOT sequence improved over the baseline, return the baseline results
-    if min_kl_sum >= initial_kl_sum:
-        return [], initial_kl_sum
-    else:
-        return best_cnot_sequence, min_kl_sum
-
-def find_best_cnot_sequence_brute_force_on_list(
-    circ1: QuantumCircuit,
-    circ2: QuantumCircuit,
-    cnot_list_to_test: list,
-    state_vec_probs_target1: dict,
-    state_vec_probs_target2: dict,
-    max_cnot_depth: int,
-    nshots: int, 
-    kl_tol: float = 0.01
-):
-    """
-    [NEW HELPER] Performs a brute-force search on a given list of CNOT candidates.
-    """
-    ng_circ1 = circ1.num_qubits
-    
-    base_combined_circuit = concatenate_circuits_with_separate_measurements(circ1, circ2)
-    base_circuit_with_measurements = add_cnots_and_measurements_to_circuit(base_combined_circuit, ng_circ1, [])
-    kl_div1_no_cnot, kl_div2_no_cnot = score_circuit_kl_divergences(base_circuit_with_measurements, state_vec_probs_target1, state_vec_probs_target2, nshots)
-    initial_kl_sum = kl_div1_no_cnot + kl_div2_no_cnot if kl_div1_no_cnot is not None and kl_div2_no_cnot is not None else float('inf')
-    min_kl_sum = initial_kl_sum
-    best_cnot_sequence = []
-    
-    print(f"\n--- Brute-force fallback: Testing permutations on {len(cnot_list_to_test)} candidates up to depth {max_cnot_depth} ---")
-    start_time = time.time()
-    for num_cnots in range(1, max_cnot_depth + 1):
-        for cnot_combination in itertools.permutations(cnot_list_to_test, num_cnots):
-            temp_cnot_sequence = list(cnot_combination)
-            temp_base_circuit = concatenate_circuits_with_separate_measurements(circ1, circ2)
-            temp_circuit_with_cnots = add_cnots_and_measurements_to_circuit(temp_base_circuit, ng_circ1, temp_cnot_sequence)
-            kl_div1, kl_div2 = score_circuit_kl_divergences(temp_circuit_with_cnots, state_vec_probs_target1, state_vec_probs_target2, nshots)
-            if kl_div1 is not None and kl_div2 is not None:
-                current_kl_sum = kl_div1 + kl_div2
-                if current_kl_sum < min_kl_sum:
-                    min_kl_sum = current_kl_sum
-                    best_cnot_sequence = temp_cnot_sequence
-                    print(f"  --> New best sequence found: {best_cnot_sequence} with KL Sum: {min_kl_sum:.6f}")
-                if min_kl_sum < kl_tol:
-                    print(f"  KL sum ({min_kl_sum:.6f}) below tolerance {kl_tol}. Stopping early.")
-                    return best_cnot_sequence, min_kl_sum
-    
-    end_time = time.time()
-    print(f"Brute-Force CNOT search took: {end_time - start_time:.2f} seconds")
-    
-    if min_kl_sum >= initial_kl_sum: return [], initial_kl_sum
-    else: return best_cnot_sequence, min_kl_sum
-
-from typing import List, Union, Set, Dict, Tuple, Optional
-import numpy as np
 
 def find_cnot_candidates_from_state_diff(
     state_probs_initial1: Union[dict, list, np.ndarray],
@@ -914,7 +757,7 @@ def _run_single_greedy_search_from_start(
                 temp_cnot_sequence = best_cnot_sequence + [candidate_cnot]
                 
                 # Use the pre-calculated base circuit
-                temp_circuit_with_cnots = add_cnots_and_measurements_to_circuit(temp_base_circuit, ng_circ1, temp_cnot_sequence)
+                temp_circuit_with_cnots = apply_entanglement_topology(temp_base_circuit, ng_circ1, temp_cnot_sequence)
                 
                 kl_div1, kl_div2 = score_circuit_kl_divergences(temp_circuit_with_cnots, state_vec_probs_target1, state_vec_probs_target2, nshots)
                 
@@ -992,7 +835,7 @@ def _run_greedy_removal_search(
             # This is safer than using list.remove(cnot) if identical CNOTs exist.
             temp_cnot_sequence = best_cnot_sequence[:i] + best_cnot_sequence[i+1:]
             
-            temp_circuit_with_cnots = add_cnots_and_measurements_to_circuit(temp_base_circuit, ng_circ1, temp_cnot_sequence)
+            temp_circuit_with_cnots = apply_entanglement_topology(temp_base_circuit, ng_circ1, temp_cnot_sequence)
             kl_div1, kl_div2 = score_circuit_kl_divergences(temp_circuit_with_cnots, state_vec_probs_target1, state_vec_probs_target2, nshots)
             
             if kl_div1 is not None and kl_div2 is not None:
@@ -1026,9 +869,6 @@ def _run_greedy_removal_search(
             
     return removal_history, best_sequence_on_path, best_kl_on_path
 
-from typing import Optional, List, Tuple
-import random
-import time
 
 def find_best_cnot_sequence_multi_epoch(
     circ1: QuantumCircuit,
@@ -1074,7 +914,7 @@ def find_best_cnot_sequence_multi_epoch(
 
     # --- The rest of the function proceeds as before ---
     base_combined_circuit = concatenate_circuits_with_separate_measurements(circ1, circ2)
-    base_circuit_with_measurements = add_cnots_and_measurements_to_circuit(base_combined_circuit, ng_circ1, [])
+    base_circuit_with_measurements = apply_entanglement_topology(base_combined_circuit, ng_circ1, [])
     kl_div1_no_cnot, kl_div2_no_cnot = score_circuit_kl_divergences(base_circuit_with_measurements, state_vec_probs_target1, state_vec_probs_target2, nshots)
     initial_kl_sum = kl_div1_no_cnot + kl_div2_no_cnot if kl_div1_no_cnot is not None and kl_div2_no_cnot is not None else float('inf')
     print(f"Initial KL divergence (baseline): {initial_kl_sum:.6f}")
@@ -1101,7 +941,7 @@ def find_best_cnot_sequence_multi_epoch(
             starting_cnot = shuffled_candidates[epoch]
 
             temp_kl_scores = score_circuit_kl_divergences(
-                add_cnots_and_measurements_to_circuit(base_combined_circuit, ng_circ1, [starting_cnot]),
+                apply_entanglement_topology(base_combined_circuit, ng_circ1, [starting_cnot]),
                 state_vec_probs_target1, state_vec_probs_target2, nshots
             )
             if temp_kl_scores is not None and temp_kl_scores[0] is not None:
@@ -1207,7 +1047,7 @@ def _single_cnot_insertion_search(
             n_trials += 1
             trial_sequence = current_sequence[:i] + [cnot_to_add] + current_sequence[i:]
             
-            trial_circuit = add_cnots_and_measurements_to_circuit(base_circuit, ng_circ1, trial_sequence)
+            trial_circuit = apply_entanglement_topology(base_circuit, ng_circ1, trial_sequence)
             kl_divs = score_circuit_kl_divergences(trial_circuit, target_probs1, target_probs2, nshots)
             
             if kl_divs is not None:
@@ -1246,7 +1086,7 @@ def _single_cnot_deletion_search(
         return current_sequence, float('inf'), None
 
     # 1. Establish the current baseline
-    base_circuit_kl = add_cnots_and_measurements_to_circuit(base_circuit, ng_circ1, current_sequence)
+    base_circuit_kl = apply_entanglement_topology(base_circuit, ng_circ1, current_sequence)
     kl_divs_base = score_circuit_kl_divergences(base_circuit_kl, target_probs1, target_probs2, nshots)
     base_kl_sum = kl_divs_base[0] + kl_divs_base[1] if kl_divs_base is not None else float('inf')
     
@@ -1261,7 +1101,7 @@ def _single_cnot_deletion_search(
     for i in range(len(current_sequence)):
         n_trials += 1
         trial_sequence = current_sequence[:i] + current_sequence[i+1:]
-        trial_circuit = add_cnots_and_measurements_to_circuit(base_circuit, ng_circ1, trial_sequence)
+        trial_circuit = apply_entanglement_topology(base_circuit, ng_circ1, trial_sequence)
         kl_divs = score_circuit_kl_divergences(trial_circuit, target_probs1, target_probs2, nshots)
         
         if kl_divs is not None:
@@ -1282,11 +1122,7 @@ def _single_cnot_deletion_search(
     
     return current_sequence, base_kl_sum, None
     
-import itertools
-import time
 
-import itertools
-import time
 
 def _pairwise_addition_search(
     base_circuit: 'QuantumCircuit',
@@ -1305,7 +1141,7 @@ def _pairwise_addition_search(
     current_sequence = list(initial_sequence)
     
     # Establish baseline
-    base_measure_circ = add_cnots_and_measurements_to_circuit(base_circuit, ng_circ1, current_sequence)
+    base_measure_circ = apply_entanglement_topology(base_circuit, ng_circ1, current_sequence)
     kl_divs_base = score_circuit_kl_divergences(base_measure_circ, target_probs1, target_probs2, nshots)
     best_kl_sum = kl_divs_base[0] + kl_divs_base[1] if kl_divs_base is not None else float('inf')
     
@@ -1343,7 +1179,7 @@ def _pairwise_addition_search(
             
             for pair in itertools.permutations(remaining_cnots, nchoose):
                 trial_seq = current_sequence + list(pair)
-                trial_circ = add_cnots_and_measurements_to_circuit(base_circuit, ng_circ1, trial_seq)
+                trial_circ = apply_entanglement_topology(base_circuit, ng_circ1, trial_seq)
                 kl_divs = score_circuit_kl_divergences(trial_circ, target_probs1, target_probs2, nshots)
                 
                 if kl_divs:
@@ -1403,7 +1239,6 @@ def find_best_cnot_sequence_iterative_n_wise(
     Performs an iterative optimization loop by separating pairwise addition
     and removal phases.
     """
-    import time
     
     ng_circ1 = circ1.num_qubits
 
@@ -1422,7 +1257,7 @@ def find_best_cnot_sequence_iterative_n_wise(
 
     # --- Step 2: Baseline (no CNOTs) ---
     base_combined_circuit = concatenate_circuits_with_separate_measurements(circ1, circ2)
-    base_circuit = add_cnots_and_measurements_to_circuit(base_combined_circuit, ng_circ1, [])
+    base_circuit = apply_entanglement_topology(base_combined_circuit, ng_circ1, [])
     kl_divs = score_circuit_kl_divergences(base_circuit, state_vec_probs_target1, state_vec_probs_target2, nshots)
     initial_kl_sum = kl_divs[0] + kl_divs[1] if kl_divs is not None else float('inf')
 
@@ -1452,14 +1287,6 @@ def find_best_cnot_sequence_iterative_n_wise(
     )
 
 
-import time
-import itertools
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from qiskit import QuantumCircuit
-from qiskit.quantum_info import Statevector, DensityMatrix
-from quantum_functions import _process_target_state_input
 
 def build_kl_divergence_matrix_interaction(
     circ1: QuantumCircuit,
@@ -1516,7 +1343,7 @@ def build_kl_divergence_matrix_interaction(
 
     # --- Calculate Baseline KL Divergence (no CNOTs) ---
     base_combined_circuit = concatenate_circuits_with_separate_measurements(circ1, circ2)
-    base_circuit_no_cnots = add_cnots_and_measurements_to_circuit(base_combined_circuit, ng_circ1, [])
+    base_circuit_no_cnots = apply_entanglement_topology(base_combined_circuit, ng_circ1, [])
     kl_divs_baseline = score_circuit_kl_divergences(base_circuit_no_cnots, state_vec_probs_target1, state_vec_probs_target2, nshots)
     initial_kl_sum = kl_divs_baseline[0] + kl_divs_baseline[1] if kl_divs_baseline is not None else float('inf')
     print(f"Initial KL Divergence (no CNOTs): {initial_kl_sum:.6f}")
@@ -1531,7 +1358,7 @@ def build_kl_divergence_matrix_interaction(
     if include_single_cnot_kl:
         print("Calculating KL for single CNOTs (diagonal elements)...")
         for i, cnot_i in enumerate(initial_cnot_config):
-            trial_circuit = add_cnots_and_measurements_to_circuit(
+            trial_circuit = apply_entanglement_topology(
                 base_combined_circuit, ng_circ1, [cnot_i]
             )
             kl_divs = score_circuit_kl_divergences(
@@ -1553,7 +1380,7 @@ def build_kl_divergence_matrix_interaction(
 
             n_pairs_tested += 1
             trial_sequence = [cnot_i_val, cnot_j_val]
-            trial_circuit = add_cnots_and_measurements_to_circuit(
+            trial_circuit = apply_entanglement_topology(
                 base_combined_circuit, ng_circ1, trial_sequence
             )
             kl_divs = score_circuit_kl_divergences(
@@ -1651,13 +1478,7 @@ def kl_to_qubo_matrix(kl_matrix: np.ndarray, initial_kl_sum: float) -> np.ndarra
 
     return qubo_matrix
 
-import numpy as np
-import matplotlib.pyplot as plt
 #from qiskit.primitives import StatevectorEstimator
-from scipy.optimize import minimize
-from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
-from qiskit_ibm_runtime import EstimatorV2 as Estimator
-from qiskit_ibm_runtime import SamplerV2 as Sampler
 
 def vqe_solver(
     ansatz, # Renamed from 'cirquit' for common convention
@@ -1804,7 +1625,6 @@ def vqe_solver(
     # Return the results
     return result_interaction, opt_params_dict, cost_values
 
-from qiskit.providers import Backend
 def evaluate_and_plot_ansatz(
     # Use a '*' to make all subsequent arguments keyword-only
     *,
@@ -1884,8 +1704,6 @@ def evaluate_and_plot_ansatz(
 # PREREQUISITES: Define the necessary helper functions
 # These must be defined in your notebook cell before you can use them.
 # ==============================================================================
-import numpy as np
-from typing import List, Dict, Tuple
 
 # Assuming these functions are already defined in your environment as provided.
 # If not, make sure to include them before running the main block.
@@ -1911,8 +1729,6 @@ def map_vqe_solution_to_cnots(
 # --- VQE HYBRID SEARCH: Iterating through Top-k VQE Solutions ---
 # This block will run the search for k=3, 2, and 1, and find the best overall.
 # ==============================================================================
-from typing import List, Dict, Tuple, Optional
-import numpy as np
 
 # Make sure these helper functions are defined in your notebook
 # get_top_k_boolean_vectors, map_vqe_solution_to_cnots, etc.
@@ -1978,7 +1794,7 @@ def run_vqe_hybrid_search(
     if not top_k_solutions:
         print("No VQE solutions found in the counts dictionary. Halting search.")
         # Calculate baseline KL to return something meaningful
-        base_circuit = add_cnots_and_measurements_to_circuit(concatenate_circuits_with_separate_measurements(circ1, circ2), circ1.num_qubits, [])
+        base_circuit = apply_entanglement_topology(concatenate_circuits_with_separate_measurements(circ1, circ2), circ1.num_qubits, [])
         kl1, kl2 = score_circuit_kl_divergences(base_circuit, state_vec_probs_target1, state_vec_probs_target2, nshots)
         baseline_kl = kl1 + kl2 if kl1 is not None else float('inf')
         return None, baseline_kl, None
@@ -2034,10 +1850,6 @@ def run_vqe_hybrid_search(
     return overall_best_cnot_sequence, overall_best_kl_sum, overall_best_rank
 
 
-import pandas as pd
-from collections import defaultdict
-import numpy as np
-from qiskit import QuantumCircuit
 
 def analyze_and_summarize_network(
     circ1: QuantumCircuit,
@@ -2174,10 +1986,6 @@ def analyze_and_summarize_network(
     # --- 6. Return the Structured Data ---
     return contribution_df, dict(hubs), all_involved_genes
 
-import networkx as nx
-import matplotlib.pyplot as plt
-from matplotlib.patches import Ellipse
-import numpy as np
 
 def plot_quantum_relay_network(
     topology, 
@@ -2307,8 +2115,93 @@ def plot_quantum_relay_network(
     plt.title(title, fontsize=18, pad=30)
     plt.axis('off')
     
-    if fname: 
+    if fname:
         plt.savefig(fname, bbox_inches='tight', transparent=True)
         print(f"Figure saved as {fname}")
-        
+
     plt.show()
+
+
+# ==============================================================================
+# --- RESULTS I/O ---
+# ==============================================================================
+import json
+import os
+
+def save_results(
+    path: str,
+    cnot_sequence: list,
+    crx_angles: list,
+    gene_list: list = None,
+    contribution_df=None,
+    metadata: dict = None
+):
+    """
+    Saves the full QuantumXCT result bundle to disk.
+
+    Writes a JSON file containing the CNOT topology and optimized CRX angles,
+    plus an optional CSV of the ablation study DataFrame.  Both files share the
+    same base name so they stay together.
+
+    File layout (example with path="results/ovarian_run1"):
+        results/ovarian_run1.json   ← topology, angles, gene list, metadata
+        results/ovarian_run1.csv    ← ablation DataFrame (if contribution_df given)
+
+    Args:
+        path (str): Output path *without* extension (e.g. "results/run1").
+        cnot_sequence (list): Ordered list of (control_qubit, target_qubit) tuples.
+        crx_angles (list): Optimized CRX rotation angles matching cnot_sequence order.
+        gene_list (list, optional): Master gene list ordered by qubit index.
+        contribution_df (pd.DataFrame, optional): Ablation study output from
+            analyze_and_summarize_network().
+        metadata (dict, optional): Any extra key-value pairs to store
+            (e.g. nshots, threshold, dataset name).
+
+    Returns:
+        str: The base path used (without extension).
+    """
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+
+    bundle = {
+        "cnot_sequence": [list(gate) for gate in cnot_sequence],
+        "crx_angles": list(crx_angles),
+        "gene_list": gene_list,
+        "metadata": metadata or {},
+    }
+
+    json_path = path + ".json"
+    with open(json_path, "w") as f:
+        json.dump(bundle, f, indent=2)
+    print(f"Topology saved → {json_path}")
+
+    if contribution_df is not None:
+        csv_path = path + "_ablation.csv"
+        contribution_df.to_csv(csv_path, index=False)
+        print(f"Ablation results saved → {csv_path}")
+
+    return path
+
+
+def load_results(path: str):
+    """
+    Loads a QuantumXCT result bundle previously saved with save_results().
+
+    Args:
+        path (str): Base path without extension (e.g. "results/run1"),
+                    or with ".json" extension — both are accepted.
+
+    Returns:
+        dict with keys:
+            - cnot_sequence (list[tuple]): The CNOT topology as (control, target) tuples.
+            - crx_angles (list[float]): Optimized CRX rotation angles.
+            - gene_list (list | None): Gene names ordered by qubit index.
+            - metadata (dict): Any extra metadata stored at save time.
+    """
+    json_path = path if path.endswith(".json") else path + ".json"
+
+    with open(json_path, "r") as f:
+        bundle = json.load(f)
+
+    bundle["cnot_sequence"] = [tuple(gate) for gate in bundle["cnot_sequence"]]
+    print(f"Results loaded from {json_path}")
+    return bundle

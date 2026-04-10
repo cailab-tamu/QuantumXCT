@@ -1,27 +1,47 @@
 name: qiskit-env
-
 channels:
   - conda-forge
+  - defaults
 dependencies:
-  - python=3.10
+  - python=3.11.9
+  - pip
+  # Core Data Science & Comp Bio
   - numpy=1.26.4
-  - leidenalg
-  - igraph
+  - pandas=2.2
   - scipy
-  - scanpy
-  - pandas
-  - matplotlib
   - scikit-learn
-  - qiskit=2.1
-  - qiskit-ibm-runtime
+  - scikit-image
+  - statsmodels=0.14.2
+  - numba=0.59
+  - sympy
+  # Graph & Clustering (Scanpy needs these)
+  - leidenalg=0.10
+  - igraph=0.10
+  - umap-learn
+  # Visualization
+  - matplotlib=3.9
+  - seaborn
+  - pillow
+  - tqdm
+  - pylatexenc
+  - tk
+  # Single-Cell Specific
+  - scanpy=1.10
+  - hdf5plugin
+  - openpyxl
+  # Jupyter & UI
   - ipykernel
+  - ipython
   - ipywidgets
+  - pyqt
+  - qtpy
   - jupyter
   - notebook
-  - pylatexenc    # Recommended for some Qiskit visualizations
-  - tk            # Recommended for some Qiskit visualizations
-  - Pillow  
-  - pip
+  # Qiskit and Pip-only packages
   - pip:
-    - qiskit_aer
+    - qiskit==2.1        
+    - qiskit-ibm-runtime
+    - qiskit-aer
     - qiskit-optimization
+    - setuptools>=61.0     # Ensures your "pip install -e ." works
+    - wheel

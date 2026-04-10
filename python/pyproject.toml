@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qxct"
+version = "0.1.0"
+description = "QuantumXCT: Hybrid quantum-classical framework for cell-cell communication inference from scRNA-seq data"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+  {name = "Selim Romero", email = "ssromerogon@tamu.edu"},
+]
+keywords = ["quantum computing", "scRNA-seq", "cell-cell communication", "qiskit", "bioinformatics"]
+
+dependencies = [
+  "numpy>=1.26",
+  "scipy",
+  "pandas",
+  "matplotlib",
+  "seaborn",
+  "scikit-learn",
+  "scanpy",
+  "networkx",
+  "qiskit>=2.1",
+  "qiskit-aer",
+  "qiskit-ibm-runtime",
+  "qiskit-optimization",
+]
+
+[project.optional-dependencies]
+dev = [
+  "jupyter",
+  "notebook",
+  "ipykernel",
+  "ipywidgets",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["qxct*"]
