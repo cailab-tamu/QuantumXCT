@@ -26,9 +26,9 @@ function [Y, configsK] = qmXctSearch(sce, CellType1Genes, CellType2Genes, grptag
     [pt_c_co, ~, ~, ~] = hlp.getn(grptags(4), CellType2Genes, sce, false);
     
     n1 = log2(numel(pt_f_mo));
-    cg_1 = initGate(1:n1, sqrt(pt_f_mo));   % creates CompositeGate to initialize qubits 1–3 :contentReference[oaicite:1]{index=1}
+    cg_1 = initGate(1:n1, sqrt(pt_f_mo));
     n2 = log2(numel(pt_c_mo));
-    cg_2 = initGate(1:n2, sqrt(pt_c_mo));   % creates CompositeGate to initialize qubits 1–4 :contentReference[oaicite:1]{index=1}
+    cg_2 = initGate(1:n2, sqrt(pt_c_mo));
     
     %%
     cg1_mapped = compositeGate(cg_1, 1:n1);
@@ -88,7 +88,6 @@ function [Y, configsK] = qmXctSearch(sce, CellType1Genes, CellType2Genes, grptag
         kl1 = hlp.i_kldiverg(pt_f_co, po_f, true);
         kl2 = hlp.i_kldiverg(pt_c_co, po_c, true);
         Y(idx) = kl1 + kl2;
-        fprintf('Combination %d: %f\n', idx, Y(idx));
         
         if all(ismember(sort(configsK{idx}, 2), sort(targettoplinkers, 2),"rows"))
             idealY = [idealY; Y(idx)];
