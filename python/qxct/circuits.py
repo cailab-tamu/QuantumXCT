@@ -24,16 +24,52 @@ from scipy.special import rel_entr
 from scipy.optimize import minimize
 
 
+# ---------------------------------------------------------------------------
+# Global seed for reproducibility (default 42).
+# Seeds Python's `random`, NumPy, and the default AerSimulator (seed_simulator),
+# so topology search (candidate shuffle) and shot sampling are reproducible.
+# ---------------------------------------------------------------------------
+_GLOBAL_SEED = 42
+
+
+def set_global_seed(seed: int = 42) -> int:
+    """Set the global seed used across the package (random, numpy, Aer sampling)."""
+    global _GLOBAL_SEED
+    _GLOBAL_SEED = int(seed)
+    random.seed(_GLOBAL_SEED)
+    np.random.seed(_GLOBAL_SEED)
+    return _GLOBAL_SEED
+
+
+def _default_backend(seed: Optional[int] = None):
+    """A local AerSimulator seeded for reproducible sampling."""
+    return AerSimulator(seed_simulator=_GLOBAL_SEED if seed is None else int(seed))
+
+
 # --- Modified create_initial_circuit function ---
-def build_initial_state_circuit(sparse_amplitude_dict):
+def build_initial_state_circuit(sparse_amplitude_dict, norm: Optional[str] = None):
     """
     Creates a quantum circuit initialized to a given state vector.
-    This function now directly accepts a sparse dictionary, infers num_qubits,
-    pads non-specified states with zeros, and L2-normalizes the state vector internally.
+    This function accepts a sparse dictionary, infers num_qubits,
+    pads non-specified states with zeros, and normalizes the state vector internally.
+
     Args:
         sparse_amplitude_dict (dict): A dictionary where keys are bitstrings
-                                      (e.g., '000', '101') and values are
-                                      relative amplitudes (can be integers or floats).
+                                      (e.g., '000', '101') and values are either
+                                      pre-computed amplitudes (``norm=None``) or raw
+                                      counts / frequencies (``norm='l1'`` or ``'l2'``).
+        norm (str | None): Encoding convention used to turn the values into
+                           amplitudes. This is the single L1/L2 switch.
+                             - None (default): values are treated as amplitudes and
+                               only L2-safety-normalized (idempotent for a valid state).
+                               Use this when the dict was already produced by
+                               ``vector_normalize_dictionary_values``.
+                             - 'l1': values are raw counts; amplitude = sqrt(count / sum(count))
+                               so measurement prob is proportional to the frequency
+                               (frequency-preserving encoding — QuantumXCT default).
+                             - 'l2': values are raw counts; amplitude = count / ||count||_2
+                               so measurement prob is proportional to count^2
+                               (original paper encoding, emphasizes common states).
     Returns:
         QuantumCircuit: The circuit initialized to the specified state.
     Raises:
@@ -61,19 +97,32 @@ def build_initial_state_circuit(sparse_amplitude_dict):
         index = int(bitstring, 2) # Convert binary string to integer index
         full_state_vector[index] = float(value) # Ensure values are floats
 
-    # 4. Normalize the full state vector (L2 norm)
-    norm_val = np.linalg.norm(full_state_vector)
-
-    if norm_val == 0:
-        # If all values are zero, the normalized vector is also all zeros.
-        # This represents the |0...0> state.
-        state_vec_probs = full_state_vector
+    # 4. Normalize the full state vector into amplitudes according to `norm`.
+    if norm == "l1":
+        # Values are raw counts; encode so that |amplitude|^2 == frequency.
+        total = full_state_vector.sum()
+        if total <= 0:
+            state_vec_probs = full_state_vector
+        else:
+            state_vec_probs = np.sqrt(full_state_vector / total)
     else:
-        state_vec_probs = full_state_vector / norm_val
-    
-    # Verify L2-normalization for good measure (should always pass if norm_val != 0)
-    if not np.isclose(np.linalg.norm(state_vec_probs), 1.0) and norm_val != 0:
-         raise ValueError("Internal error: State vector did not normalize correctly.")
+        # norm is None ('values are already amplitudes') or 'l2' ('raw counts,
+        # encode as count / ||count||_2'). Both use the L2 path, which is a
+        # no-op (idempotent) for an already-normalized amplitude vector.
+        if norm not in (None, "l2"):
+            raise ValueError(f"Unknown norm '{norm}', use None, 'l1' or 'l2'.")
+        norm_val = np.linalg.norm(full_state_vector)
+        if norm_val == 0:
+            # If all values are zero, the normalized vector is also all zeros.
+            # This represents the |0...0> state.
+            state_vec_probs = full_state_vector
+        else:
+            state_vec_probs = full_state_vector / norm_val
+
+    # Verify L2-normalization for good measure (a valid state must have unit norm).
+    total_norm = np.linalg.norm(state_vec_probs)
+    if not np.isclose(total_norm, 1.0) and total_norm != 0:
+        raise ValueError("Internal error: State vector did not normalize correctly.")
 
     # 5. Create the Qiskit Quantum Circuit
     qr = QuantumRegister(num_qubits, name='q')
@@ -212,22 +261,31 @@ def add_crx_gates_and_measurements_to_circuit(
 
 
 # --- Function to normalize dictionary values ---
-def vector_normalize_dictionary_values(input_dict):
-    """Normalizes the values of a dictionary by dividing each value by the L2 norm of all values."""
-    values = np.array(list(input_dict.values()), dtype=float)
-    if values.size == 0:  # Handle empty dictionary
+def vector_normalize_dictionary_values(data_dict: dict, norm: str = "l1") -> dict:
+    """
+    Convert a count/frequency dictionary into state-vector amplitudes.
+    norm = "l2"  : amplitude = count / ||count||_2   (measurement prob ∝ count^2,
+                   original paper encoding, Eqs. 1–2)   [emphasizes common states]
+    norm = "l1"  : amplitude = sqrt( count / sum(count) )  (measurement prob ∝ count,
+                   i.e., square-root / frequency-preserving encoding)
+    """
+    if not data_dict:
         return {}
 
-    norm_val = np.linalg.norm(values)  # Calculate the L2 norm of the values
+    values = np.array(list(data_dict.values()), dtype=float)
 
-    if norm_val == 0:  # Avoid division by zero if all values are zero
-        return {key: 0.0 for key in input_dict}
+    if norm == "l2":
+        denom = np.linalg.norm(values)              # existing behavior
+        amps = values / denom if denom != 0 else values
+    elif norm == "l1":
+        total = values.sum()
+        probs = values / total if total != 0 else values
+        amps = np.sqrt(probs)                        # sqrt so that |amp|^2 = frequency
+    else:
+        raise ValueError(f"Unknown norm '{norm}', use 'l2' or 'l1'.")
 
-    normalized_dict = {}
-    # Iterate through original dictionary items to maintain key order
-    for i, (key, value) in enumerate(input_dict.items()):
-        normalized_dict[key] = values[i] / norm_val
-    return normalized_dict
+    return {k: a for k, a in zip(data_dict.keys(), amps)}
+
 
 def get_probability_distribution(counts: dict, num_bits: int, total_shots: int) -> dict:
     """
@@ -265,8 +323,41 @@ def calculate_kl_divergence(p_dist: dict, q_dist: dict, epsilon=1e-9) -> float:
     return kl_div
 
 # --- NEW HELPER FUNCTION ---
-def _process_target_state_input(target_input: Union[dict, list, np.ndarray]) -> Tuple[np.ndarray, int]:
-    """Converts a dictionary, list, or array to a normalized complex NumPy array."""
+def _normalize_amplitudes(full_vec: np.ndarray, norm: Optional[str]) -> np.ndarray:
+    """
+    Turns a raw (or already-amplitude) vector into a unit-norm amplitude vector,
+    using the same L1/L2 convention as ``build_initial_state_circuit``.
+
+      - None / 'l2' : amplitude = value / ||value||_2  (idempotent for a valid state)
+      - 'l1'        : amplitude = sqrt(value / sum(value))  (frequency-preserving)
+    """
+    if norm == "l1":
+        real_vals = full_vec.real
+        total = real_vals.sum()
+        if total <= 0:
+            return full_vec
+        return np.sqrt(np.clip(real_vals / total, 0.0, None)).astype(complex)
+    if norm not in (None, "l2"):
+        raise ValueError(f"Unknown norm '{norm}', use None, 'l1' or 'l2'.")
+    n = np.linalg.norm(full_vec)
+    return full_vec / n if n != 0 else full_vec
+
+
+def _process_target_state_input(
+    target_input: Union[dict, list, np.ndarray],
+    norm: Optional[str] = None,
+) -> Tuple[np.ndarray, int]:
+    """
+    Converts a dictionary, list, or array to a normalized complex NumPy array.
+
+    Args:
+        target_input: bitstring->value dict, or a dense list/array.
+        norm: L1/L2 encoding convention (see ``build_initial_state_circuit``).
+              None means the input is already amplitudes (L2-safety only); 'l1'/'l2'
+              treat the input as raw counts and must match the convention used to
+              build the initial-state circuits, otherwise the KL comparison is
+              between two different encodings.
+    """
     if isinstance(target_input, dict):
         if not target_input: return np.array([], dtype=complex), 0
         sample_bitstring = next(iter(target_input))
@@ -276,17 +367,12 @@ def _process_target_state_input(target_input: Union[dict, list, np.ndarray]) -> 
         for bs, val in target_input.items():
             idx = int(bs, 2)
             full_vec[idx] = complex(val) # Cast to complex
-        norm = np.linalg.norm(full_vec)
-        normalized_vec = full_vec / norm if norm != 0 else full_vec
-        return normalized_vec, n_qubits
+        return _normalize_amplitudes(full_vec, norm), n_qubits
     elif isinstance(target_input, (list, np.ndarray)):
         if len(target_input) == 0: return np.array([], dtype=complex), 0
         processed_vec = np.array(target_input, dtype=complex) # Use complex dtype
         n_qubits = int(np.log2(len(processed_vec)))
-        norm = np.linalg.norm(processed_vec)
-        if not np.isclose(norm, 1.0) and norm != 0:
-            processed_vec = processed_vec / norm
-        return processed_vec, n_qubits
+        return _normalize_amplitudes(processed_vec, norm), n_qubits
     else:
         raise TypeError("Target state must be a dictionary, list, or numpy array.")
 
@@ -295,7 +381,10 @@ def score_circuit_kl_divergences(
     circuit_to_evaluate: QuantumCircuit,
     state_vec_probs_target1: list or np.ndarray,
     state_vec_probs_target2: list or np.ndarray,
-    nshots: int = 1000
+    nshots: int = 1000,
+    backend=None,
+    error_mitigation: bool = False,
+    norm: Optional[str] = None
 ):
     """
     Evaluates a Qiskit circuit by simulating it and calculates KL divergences
@@ -313,6 +402,10 @@ def score_circuit_kl_divergences(
         state_vec_probs_target2 (list or np.array): The amplitudes of the target state vector
                                                      for the second classical register (c_measure2).
         nshots (int): The number of shots for the simulation. Defaults to 1000.
+        backend: A Qiskit backend. If None, defaults to a local AerSimulator.
+                 Pass a real IBM backend here to run on hardware.
+        error_mitigation (bool): If True, enables dynamical decoupling and twirling
+                                 on the sampler (intended for real-hardware runs).
 
     Returns:
         tuple: A tuple containing (kl_div1, kl_div2), which are the KL divergence
@@ -321,8 +414,8 @@ def score_circuit_kl_divergences(
     """
     # 1. Define target states (convert amplitudes to probability distributions)   
     # Process the input target states to ensure they are full, normalized NumPy arrays
-    processed_state_vec_probs_target1, num_qubits_target1 = _process_target_state_input(state_vec_probs_target1)
-    processed_state_vec_probs_target2, num_qubits_target2 = _process_target_state_input(state_vec_probs_target2)
+    processed_state_vec_probs_target1, num_qubits_target1 = _process_target_state_input(state_vec_probs_target1, norm)
+    processed_state_vec_probs_target2, num_qubits_target2 = _process_target_state_input(state_vec_probs_target2, norm)
 
     # 2. Define target states (convert amplitudes to probability distributions)
     # These lines now correctly operate on the processed (dense, numerically indexed) arrays
@@ -332,12 +425,20 @@ def score_circuit_kl_divergences(
     prob_dist_target2 = {bin(i)[2:].zfill(num_qubits_target2): np.abs(processed_state_vec_probs_target2[i])**2
                          for i in range(2**num_qubits_target2)}
 
-    # 5. Simulate the circuit
-    backend = AerSimulator()
+    # 5. Simulate / execute the circuit
+    if backend is None:
+        backend = _default_backend()
+
     pm = generate_preset_pass_manager(backend=backend, optimization_level=1)
     qc_comp = pm.run(circuit_to_evaluate.decompose())
 
     sampler = Sampler(mode=backend)
+    if error_mitigation:
+        # Only meaningful on real hardware; harmless flags for a demonstration run.
+        sampler.options.dynamical_decoupling.enable = True
+        sampler.options.twirling.enable_gates = True
+        sampler.options.twirling.enable_measure = True
+
     job = sampler.run([qc_comp], shots=nshots)
 
     # Access results using the classical register names
@@ -401,7 +502,7 @@ def plot_measurement_histograms(
     print(f"\n--- Running circuit for: {title_prefix} ---")
     # 1. Select backend
     if backend is None:
-        backend = AerSimulator()
+        backend = _default_backend()
     # transpile if using AerSimulator (for real hardware, sometimes needed as well)
     try:
         pm = generate_preset_pass_manager(backend=backend, optimization_level=3)
@@ -456,7 +557,7 @@ def plot_measurement_histograms(
 
             if figure_save_name:
                 try:
-                    fig.savefig(figure_save_name)
+                    fig.savefig(figure_save_name, dpi=300)
                     print(f"Histogram figure saved to {figure_save_name}")
                 except Exception as save_e:
                     print(f"Error saving figure to {figure_save_name}: {save_e}")
@@ -483,7 +584,7 @@ def optimize_crx_angles(
     nshots: int = 1000,
     etol: float = 1e-6,
     opt_method: str = 'COBYLA', # Optimization method to use "L-BFGS-B", "COBYLA", etc.
-    initial_angle_value: float = 0.0 # Default initial angle for all CRX gates
+    initial_angle_value: float = np.pi / 2 # Start angle optimization at the topology-search value CRX(pi/2), then fine-tune (starting at 0 = identity gates tends to get stuck near baseline)
 ):
     """
     Optimizes the rotation angles of CRX gates placed according to a given CNOT topology
@@ -497,7 +598,10 @@ def optimize_crx_angles(
         cnot_topology (list[tuple[int, int]]): A list of (control_q, target_q) global qubit
                                                 indices defining where CRX gates will be placed.
         nshots (int): Number of shots for simulation.
-        initial_angle_value (float): The initial angle value for all CRX gates. Defaults to pi.
+        initial_angle_value (float): The initial angle value for all CRX gates. Defaults to pi/2,
+                              which starts the optimizer exactly at the topology-search
+                              configuration (CRX(pi/2)) and then fine-tunes. Starting at 0
+                              makes every CRX the identity and tends to get stuck near baseline.
 
     Returns:
         tuple: A tuple containing (optimized_angles, min_kl_sum_optimized, optimization_history).
@@ -585,6 +689,64 @@ def optimize_crx_angles(
     return optimized_angles, min_kl_sum_optimized, optimization_history
 
 
+def compare_angle_initializations(
+    circ1: QuantumCircuit,
+    circ2: QuantumCircuit,
+    state_vec_probs_target1,
+    state_vec_probs_target2,
+    cnot_topology: list,
+    inits=(0.0, np.pi / 2),
+    nshots: int = 5000,
+    opt_method: str = "COBYLA",
+    etol: float = 1e-6,
+    norm: Optional[str] = None,
+    show_plot: bool = True,
+    filename: Optional[str] = None,
+):
+    """Run CRX-angle optimization from several starting angles and plot convergence.
+
+    Optimizes the same fixed topology once per value in ``inits`` (e.g. 0 and pi/2),
+    capturing each run's per-evaluation KL history, and overlays the convergence
+    curves on one figure. Before each run the global seed is reset, so all
+    initializations see the SAME shot-noise realization (a fair comparison).
+
+    Returns:
+        dict keyed by init value -> {"angles", "final_kl", "history"}.
+    """
+    results = {}
+    for init in inits:
+        set_global_seed(_GLOBAL_SEED)   # common random numbers across initializations
+        angles, kl, hist = optimize_crx_angles(
+            circ1, circ2, state_vec_probs_target1, state_vec_probs_target2,
+            cnot_topology, nshots=nshots, etol=etol, opt_method=opt_method,
+            initial_angle_value=init,
+        )
+        results[init] = {"angles": angles, "final_kl": kl, "history": hist}
+
+    if show_plot or filename:
+        import matplotlib.pyplot as plt   # lazy import (avoids GUI-DLL load at import time)
+        plt.figure(figsize=(7, 5))
+        for init, r in results.items():
+            hist = r["history"]
+            if not hist:
+                continue
+            plt.plot(range(1, len(hist) + 1), hist, marker="o", markersize=3,
+                     linewidth=1.6, label=f"init={init:.4f}  (final KL {r['final_kl']:.4f})")
+        plt.xlabel("objective evaluation")
+        plt.ylabel("combined KL divergence")
+        plt.title("CRX angle-optimization convergence by initialization")
+        plt.grid(True, linestyle=":", alpha=0.5)
+        plt.legend(frameon=True)
+        plt.tight_layout()
+        if filename:
+            plt.savefig(filename, bbox_inches="tight", dpi=300)
+        if show_plot:
+            plt.show()
+        plt.close()
+
+    return results
+
+
 def create_cnot_pairs_from_locations(
     locations_A: list[int],
     locations_B: list[int]
@@ -624,14 +786,15 @@ def find_cnot_candidates_from_state_diff(
     search_mode: str = "pos",  # Now defaults to "pos" based on our discussion
     plot_filename: Optional[str] = None,
     show_plot: bool = False,
-    verbose_print: bool = False
+    verbose_print: bool = False,
+    norm: Optional[str] = None
 ) -> Tuple[List[Tuple[int, int]], Dict[str, float]]:
-    
-    # --- 1. Process Inputs ---
-    state_list1_initial, _ = _process_target_state_input(state_probs_initial1)
-    state_list2_initial, _ = _process_target_state_input(state_probs_initial2)
-    state_list1_target, _ = _process_target_state_input(state_vec_probs_target1)
-    state_list2_target, _ = _process_target_state_input(state_vec_probs_target2)
+
+    # --- 1. Process Inputs (same L1/L2 convention as the circuits being scored) ---
+    state_list1_initial, _ = _process_target_state_input(state_probs_initial1, norm)
+    state_list2_initial, _ = _process_target_state_input(state_probs_initial2, norm)
+    state_list1_target, _ = _process_target_state_input(state_vec_probs_target1, norm)
+    state_list2_target, _ = _process_target_state_input(state_vec_probs_target2, norm)
 
     # Initial = Basal, Target = Interacting
     combined_amps0 = np.kron(state_list2_initial, state_list1_initial)
@@ -641,6 +804,22 @@ def find_cnot_candidates_from_state_diff(
         return [], {}
 
     # --- 2. Matrix Math ---
+    # Large systems (> 12 qubits): the dense 2^N x 2^N difference matrix needs
+    # 16 * 4^N bytes (17 TB at N = 20).  Use the exact sparse equivalent instead
+    # (same candidates; see find_cnot_candidates_sparse).  Small systems and any call
+    # that asks for the heatmap keep the original dense path, so all saved
+    # results are unchanged.
+    if combined_amps0.size > 2 ** 12 and not (plot_filename or show_plot):
+        cnot_candidates, stats = find_cnot_candidates_sparse(
+            state_probs_initial1, state_probs_initial2, state_vec_probs_target1, state_vec_probs_target2,
+            threshold=threshold, search_mode=search_mode, norm=norm, precision="float64")
+        if verbose_print:
+            nq = int(np.log2(combined_amps.size))
+            print(f"\n--- CNOT Analysis ({search_mode}, sparse) ---")
+            print(f"Max Signal: {stats['max_element']:.4f}")
+            print(f"Candidates Found: {len(cnot_candidates)} / {nq * (nq - 1)}")
+        return cnot_candidates, stats
+
     dm0 = DensityMatrix(Statevector(combined_amps0))
     dm = DensityMatrix(Statevector(combined_amps))
     diff_matrix = (dm - dm0).data
@@ -698,12 +877,23 @@ def find_cnot_candidates_from_state_diff(
     
     # --- 5. Optional Plotting ---
     if plot_filename or show_plot:
-        # (Your plotting logic remains effective and is unchanged here)
-        fig, ax = plt.subplots(figsize=(7, 6))
-        sns.heatmap(real_part_data, annot=False, cmap="RdBu", cbar=True, ax=ax)
-        ax.set_title(f"DM Difference (Mode: {search_mode})")
+        # Diverging map centered at 0 so gains (co>mono) and losses (co<mono) read
+        # clearly as red vs blue; bitstring row/col labels so peaks are identifiable.
+        fig, ax = plt.subplots(figsize=(8, 7))
+        _fs = max(4, min(9, int(220 / max(len(labels), 1))))
+        # gauge-free display: keep the normalized-vector values as-is, only
+        # standardize the COLOR range symmetrically around 0 so it reads evenly.
+        _vmax = float(np.max(np.abs(real_part_data))) or 1.0
+        sns.heatmap(real_part_data, annot=False, cmap="RdBu_r", center=0,
+                    vmin=-_vmax, vmax=_vmax, cbar=True, ax=ax,
+                    xticklabels=labels, yticklabels=labels,
+                    cbar_kws={"label": "co - mono (density-matrix difference)"})
+        ax.tick_params(axis="x", labelsize=_fs, rotation=90)
+        ax.tick_params(axis="y", labelsize=_fs, rotation=0)
+        ax.set_xlabel("state |cell2 cell1>"); ax.set_ylabel("state |cell2 cell1>")
+        ax.set_title(f"DM Difference (mode: {search_mode})  —  red = gained in co, blue = lost")
         plt.tight_layout()
-        if plot_filename: plt.savefig(plot_filename)
+        if plot_filename: plt.savefig(plot_filename, dpi=300)
         if show_plot: plt.show()
         plt.close(fig)
 
@@ -716,6 +906,214 @@ def find_cnot_candidates_from_state_diff(
         print("------------------------------\n")
         
     return cnot_candidates, stats
+
+
+# ==============================================================================
+# --- SCALABLE / LOW-PRECISION VARIANTS (additive; the function above is the
+#     reference implementation. These return the SAME (candidates, stats).) ---
+# ==============================================================================
+def _candidate_pairs_from_peaks(index_pairs, num_qubits):
+    """Map (row_index, col_index) density-matrix peaks -> deduplicated CNOT pairs,
+    using the identical logic as find_cnot_candidates_from_state_diff."""
+    cfg = set()
+    for r_idx, c_idx in index_pairs:
+        lr = bin(r_idx)[2:].zfill(num_qubits)
+        lc = bin(c_idx)[2:].zfill(num_qubits)
+        qr = [num_qubits - 1 - i for i, b in enumerate(lr) if b == '1']
+        qc = [num_qubits - 1 - i for i, b in enumerate(lc) if b == '1']
+        if qr or qc:
+            cfg.update(create_cnot_pairs_from_locations(qr, qc))
+    return sorted(cfg)
+
+
+def _amp_map(x, norm):
+    """Sparse amplitude map {state_index: amplitude} for one register, plus its
+    qubit count. Matches _normalize_amplitudes: 'l1' -> sqrt(v/sum(v));
+    None/'l2' -> v/||v||_2. Works from a bitstring dict or a dense array without
+    densifying anything larger than the input."""
+    if isinstance(x, dict):
+        if not x:
+            return {}, 0
+        n = len(next(iter(x)))
+        idxs = np.array([int(bs, 2) for bs in x.keys()], dtype=np.int64)
+        vals = np.array([float(v) for v in x.values()], dtype=np.float64)
+    else:
+        arr = np.asarray(x, dtype=np.float64)
+        if arr.size == 0:
+            return {}, 0
+        n = int(round(np.log2(arr.size)))
+        idxs = np.nonzero(arr)[0]
+        vals = arr[idxs]
+    if norm == "l1":
+        tot = vals.sum()
+        amps = np.sqrt(np.clip(vals / tot, 0.0, None)) if tot > 0 else vals
+    else:  # None or 'l2'  (value / ||value||_2)
+        nrm = np.linalg.norm(vals)
+        amps = vals / nrm if nrm > 0 else vals
+    return {int(i): float(a) for i, a in zip(idxs, amps)}, n
+
+
+def _dm_stats_from_block(block, has_zeros, n_total, search_mode):
+    """Reproduce find_cnot_candidates_from_state_diff's stats from the (possibly
+    support-only) real difference block. has_zeros=True when off-block entries
+    (all exactly 0) exist in the full 2^N x 2^N matrix."""
+    mx = float(block.max()) if block.size else 0.0
+    mn = float(block.min()) if block.size else 0.0
+    if has_zeros:
+        mx = max(mx, 0.0); mn = min(mn, 0.0)
+    stats = {"max_element": mx, "min_element": mn,
+             "abs_average": float(np.abs(block).sum()) / (2.0 ** (2 * n_total)) if n_total else 0.0}
+    pos = block[block > 0]; neg = block[block < 0]
+    if search_mode == "pos":
+        stats["relevant_avg"] = float(pos.mean()) if pos.size else 0.0
+    elif search_mode == "neg":
+        stats["relevant_avg"] = float(neg.mean()) if neg.size else 0.0
+    else:
+        stats["avg_positive"] = float(pos.mean()) if pos.size else 0.0
+        stats["avg_negative"] = float(neg.mean()) if neg.size else 0.0
+    return stats
+
+
+def find_cnot_candidates_dense(
+    state_probs_initial1, state_probs_initial2,
+    state_vec_probs_target1, state_vec_probs_target2,
+    threshold, search_mode="pos", verbose_print=False, norm=None,
+    precision="float32", plot_filename=None, show_plot=False,
+):
+    """Real-valued dense variant (no complex128 / DensityMatrix). Builds the full
+    2^N x 2^N difference in the chosen float precision. Candidate-identical to
+    find_cnot_candidates_from_state_diff; use for small N (allows the heatmap)."""
+    dtype = {"float16": np.float16, "float32": np.float32, "float64": np.float64}[precision]
+    v1i, _ = _process_target_state_input(state_probs_initial1, norm)
+    v2i, _ = _process_target_state_input(state_probs_initial2, norm)
+    v1t, _ = _process_target_state_input(state_vec_probs_target1, norm)
+    v2t, _ = _process_target_state_input(state_vec_probs_target2, norm)
+    a0 = np.kron(v2i, v1i).real.astype(dtype)
+    a = np.kron(v2t, v1t).real.astype(dtype)
+    if a0.size == 0 or a.size == 0:
+        return [], {}
+    D = (np.outer(a, a) - np.outer(a0, a0))
+    n_total = int(round(np.log2(D.shape[0])))
+    if search_mode == "pos":
+        rows, cols = np.where(D > threshold)
+    elif search_mode == "neg":
+        rows, cols = np.where(D < -threshold)
+    else:
+        rows, cols = np.where(np.abs(D) > threshold)
+    cands = _candidate_pairs_from_peaks(zip(rows.tolist(), cols.tolist()), n_total)
+    stats = _dm_stats_from_block(D, has_zeros=False, n_total=n_total, search_mode=search_mode)
+    if plot_filename or show_plot:
+        _plot_dm_heatmap(np.asarray(D, dtype=np.float64),
+                         [bin(i)[2:].zfill(n_total) for i in range(D.shape[0])],
+                         search_mode, plot_filename, show_plot)
+    if verbose_print:
+        tp = n_total * (n_total - 1) if n_total > 1 else 0
+        print(f"\n--- CNOT Analysis ({search_mode}, dense-{precision}) ---")
+        print(f"Max Signal: {stats['max_element']:.4f}")
+        print(f"Candidates Found: {len(cands)} / {tp}\n------------------------------\n")
+    return cands, stats
+
+
+def find_cnot_candidates_sparse(
+    state_probs_initial1, state_probs_initial2,
+    state_vec_probs_target1, state_vec_probs_target2,
+    threshold, search_mode="pos", verbose_print=False, norm=None,
+    precision="float32", plot_filename=None, show_plot=False, plot_support_cap=64,
+):
+    """Scalable support-block variant. Never builds the 2^N vector or 2^N x 2^N
+    matrix: it works on the union support S of the (sparse) basal/target combined
+    amplitudes and computes the |S| x |S| block only. Candidate-identical to the
+    reference for threshold > 0. Memory scales with the DATA (|S|^2), not 4^N.
+    Combined index convention matches np.kron(cell2, cell1): g = i2 * 2**n1 + i1.
+    """
+    m1i, n1 = _amp_map(state_probs_initial1, norm)
+    m2i, n2 = _amp_map(state_probs_initial2, norm)
+    m1t, n1t = _amp_map(state_vec_probs_target1, norm)
+    m2t, n2b = _amp_map(state_vec_probs_target2, norm)
+    n1 = n1 or n1t; n2 = n2 or n2b
+    if not (m1t and m2t):
+        return [], {}
+    n_total = n1 + n2
+
+    def _combine(m1, m2):
+        out = {}
+        base = 1 << n1
+        for i2, a2 in m2.items():
+            off = i2 * base
+            for i1, a1 in m1.items():
+                out[off + i1] = a2 * a1
+        return out
+
+    a_map = _combine(m1t, m2t)                 # target (co)
+    a0_map = _combine(m1i, m2i) if (m1i and m2i) else {}   # basal (mono)
+    S = sorted(set(a_map) | set(a0_map))
+    # Threshold pruning (exact): an element a_r a_c - a0_r a0_c can only exceed
+    # +threshold if |a_r| * max|a| > threshold (and the same for c), and can only
+    # fall below -threshold if |a0_r| * max|a0| > threshold.  Dropping every other
+    # index therefore removes no entry that passes the threshold, while the block
+    # shrinks from |support|^2 to a few hundred squared at 20 qubits.
+    if threshold > 0 and S:
+        am = max((abs(v) for v in a_map.values()), default=0.0)
+        a0m = max((abs(v) for v in a0_map.values()), default=0.0)
+        keep_pos = search_mode in ("pos", "abs")
+        keep_neg = search_mode in ("neg", "abs")
+        S = [k for k in S
+             if (keep_pos and abs(a_map.get(k, 0.0)) * am > threshold)
+             or (keep_neg and abs(a0_map.get(k, 0.0)) * a0m > threshold)]
+    dtype = {"float16": np.float16, "float32": np.float32, "float64": np.float64}[precision]
+    aS = np.array([a_map.get(k, 0.0) for k in S], dtype=dtype)
+    a0S = np.array([a0_map.get(k, 0.0) for k in S], dtype=dtype)
+    block = np.outer(aS, aS) - np.outer(a0S, a0S)      # |S| x |S| only
+
+    if search_mode == "pos":
+        pr, pc = np.where(block > threshold)
+    elif search_mode == "neg":
+        pr, pc = np.where(block < -threshold)
+    else:
+        pr, pc = np.where(np.abs(block) > threshold)
+    # map local support positions back to global state indices
+    idx_pairs = ((S[p], S[q]) for p, q in zip(pr.tolist(), pc.tolist()))
+    cands = _candidate_pairs_from_peaks(idx_pairs, n_total)
+
+    has_zeros = len(S) < (1 << n_total)
+    stats = _dm_stats_from_block(block, has_zeros=has_zeros, n_total=n_total, search_mode=search_mode)
+
+    if (plot_filename or show_plot) and len(S) <= plot_support_cap:
+        # heatmap of the support block only, labeled by the S states
+        _plot_dm_heatmap(np.asarray(block, dtype=np.float64),
+                         [bin(k)[2:].zfill(n_total) for k in S],
+                         f"{search_mode}, support {len(S)}", plot_filename, show_plot)
+    elif (plot_filename or show_plot):
+        print(f"[find_cnot_candidates_sparse] support {len(S)} > cap {plot_support_cap}; heatmap skipped.")
+
+    if verbose_print:
+        tp = n_total * (n_total - 1) if n_total > 1 else 0
+        print(f"\n--- CNOT Analysis ({search_mode}, sparse |S|={len(S)}) ---")
+        print(f"Max Signal: {stats['max_element']:.4f}")
+        print(f"Candidates Found: {len(cands)} / {tp}\n------------------------------\n")
+    return cands, stats
+
+
+def _plot_dm_heatmap(real_part_data, labels, search_mode, plot_filename=None, show_plot=False):
+    """Shared DM-difference heatmap: diverging map centered at 0, symmetric color
+    limits (gauge-free display), bitstring axis labels, 300 dpi PNG."""
+    fig, ax = plt.subplots(figsize=(8, 7))
+    _fs = max(4, min(9, int(220 / max(len(labels), 1))))
+    _vmax = float(np.max(np.abs(real_part_data))) or 1.0
+    sns.heatmap(real_part_data, annot=False, cmap="RdBu_r", center=0,
+                vmin=-_vmax, vmax=_vmax, cbar=True, ax=ax,
+                xticklabels=labels, yticklabels=labels,
+                cbar_kws={"label": "co - mono (density-matrix difference)"})
+    ax.tick_params(axis="x", labelsize=_fs, rotation=90)
+    ax.tick_params(axis="y", labelsize=_fs, rotation=0)
+    ax.set_xlabel("state |cell2 cell1>"); ax.set_ylabel("state |cell2 cell1>")
+    ax.set_title(f"DM Difference (mode: {search_mode})  —  red = gained in co, blue = lost")
+    plt.tight_layout()
+    if plot_filename:
+        plt.savefig(plot_filename, dpi=300)
+    if show_plot:
+        plt.show()
+    plt.close(fig)
 
 
 # ==============================================================================
@@ -879,7 +1277,7 @@ def find_best_cnot_sequence_multi_epoch(
     state_vec_probs_target2: dict,
     # --- NEW: Optional parameter to provide a candidate list ---
     cnot_search_candidates: Optional[List[Tuple[int, int]]] = None,
-    n_epochs: int = 10,
+    n_epochs: Optional[int] = None,   # None / <=0 => maximum (one epoch per candidate)
     min_cnot_depth: int = 1,
     nshots: int = 1000,
     threshold: float = 0.1,
@@ -933,9 +1331,14 @@ def find_best_cnot_sequence_multi_epoch(
         print("\nNo CNOT candidates found or provided. Skipping search epochs.")
     else:
         # --- Multi-Epoch greedy search (addition) ---
-        num_epochs_to_run = min(n_epochs, len(all_possible_single_cnots))
+        # n_epochs=None (or <=0) means "maximum": one epoch per candidate, i.e.
+        # try every candidate as a starting point (exhaustive over starts).
+        if n_epochs is None or n_epochs <= 0:
+            num_epochs_to_run = len(all_possible_single_cnots)
+        else:
+            num_epochs_to_run = min(n_epochs, len(all_possible_single_cnots))
         shuffled_candidates = all_possible_single_cnots.copy()
-        random.shuffle(shuffled_candidates)
+        random.Random(_GLOBAL_SEED).shuffle(shuffled_candidates)  # reproducible epoch-start order
 
         for epoch in range(num_epochs_to_run):
             starting_cnot = shuffled_candidates[epoch]
@@ -1233,11 +1636,17 @@ def find_best_cnot_sequence_iterative_n_wise(
     search_mode: str = "abs",  # "abs", "pos", or "neg"
     nchoose: int = 2,
     kl_tol: float = 0.05, 
-    ratio_kl_tol: float = 0.6
+    ratio_kl_tol: float = 0.6,
+    cnot_search_candidates: list = None,
     ):
     """
     Performs an iterative optimization loop by separating pairwise addition
     and removal phases.
+
+    cnot_search_candidates: optional pre-screened (and scoped) candidate list.
+    If given, density-matrix screening is skipped and only these candidates are
+    searched, so GRN-only / LR-only / GRN+LR scopes apply to the n-wise search
+    exactly as they do to the multi-epoch search.
     """
     
     ng_circ1 = circ1.num_qubits
@@ -1246,12 +1655,15 @@ def find_best_cnot_sequence_iterative_n_wise(
     start_total_time = time.time()
 
     # --- State and Density Matrix Analysis ---
-    initial_cnot_config, stats = find_cnot_candidates_from_state_diff(
-        state_probs_initial1, state_probs_initial2,
-        state_vec_probs_target1, state_vec_probs_target2, 
-        threshold= threshold, search_mode = search_mode, verbose_print = True,
-        plot_filename = None, show_plot = True
-        )
+    if cnot_search_candidates is not None:
+        initial_cnot_config = [tuple(c) for c in cnot_search_candidates]
+    else:
+        initial_cnot_config, stats = find_cnot_candidates_from_state_diff(
+            state_probs_initial1, state_probs_initial2,
+            state_vec_probs_target1, state_vec_probs_target2, 
+            threshold= threshold, search_mode = search_mode, verbose_print = True,
+            plot_filename = None, show_plot = True
+            )
 
     print(f"Number of initial CNOT candidates: {len(initial_cnot_config)}")
 
@@ -1265,7 +1677,9 @@ def find_best_cnot_sequence_iterative_n_wise(
 
     if len(initial_cnot_config) < 2:
         print("Not enough CNOT candidates to form a pair. Skipping search.")
-        return initial_cnot_config, [], [], initial_kl_sum
+        # Return a 3-tuple to match the normal return path
+        # (initial_cnot_config, best_add_sequence, best_add_kl_sum).
+        return initial_cnot_config, [], initial_kl_sum
 
     # --- Step 3: Pairwise Addition Phase ---
     best_add_sequence, best_add_kl_sum = _pairwise_addition_search(
@@ -1298,7 +1712,8 @@ def build_kl_divergence_matrix_interaction(
     nshots: int = 1000,
     threshold: float = 0.05,
     search_mode: str = "abs", # abs, pos, neg
-    include_single_cnot_kl: bool = True
+    include_single_cnot_kl: bool = True,
+    cnot_search_candidates: list = None,
 ):
     """
     Builds a matrix where M[i][j] represents the KL divergence of the circuit
@@ -1334,12 +1749,17 @@ def build_kl_divergence_matrix_interaction(
 
 
     # --- State and Density Matrix Analysis ---
-    initial_cnot_config, stats = find_cnot_candidates_from_state_diff(
-        state_probs_initial1, state_probs_initial2,
-        state_vec_probs_target1, state_vec_probs_target2, 
-        threshold= threshold, search_mode=search_mode, verbose_print = True,
-        plot_filename = None, show_plot = True
-        )
+    # (a pre-screened / scoped candidate list skips the screening, so the
+    #  GRN / LR / GRN+LR scopes also apply to the VQE-hybrid search)
+    if cnot_search_candidates is not None:
+        initial_cnot_config = [tuple(c) for c in cnot_search_candidates]
+    else:
+        initial_cnot_config, stats = find_cnot_candidates_from_state_diff(
+            state_probs_initial1, state_probs_initial2,
+            state_vec_probs_target1, state_vec_probs_target2, 
+            threshold= threshold, search_mode=search_mode, verbose_print = True,
+            plot_filename = None, show_plot = True
+            )
 
     # --- Calculate Baseline KL Divergence (no CNOTs) ---
     base_combined_circuit = concatenate_circuits_with_separate_measurements(circ1, circ2)
@@ -1691,7 +2111,7 @@ def evaluate_and_plot_ansatz(
         plt.tight_layout()
         
         if filename:
-            plt.savefig(filename, bbox_inches='tight')
+            plt.savefig(filename, bbox_inches='tight', dpi=300)
         
         if show_plot:
             plt.show()
@@ -1897,38 +2317,52 @@ def analyze_and_summarize_network(
     kl_divs_baseline = score_circuit_kl_divergences(baseline_circuit, state_vec_probs_target1, state_vec_probs_target2, nshots)
     current_kl = sum(kl_divs_baseline) if kl_divs_baseline and None not in kl_divs_baseline else float('inf')
 
-    # --- Step 2: Perform Ablation Study (Sequential Gate Contribution) ---
+    # --- Step 2: Perform Ablation Study ---
+    # Two complementary views per gate:
+    #   * Cumulative: KL as gates are added in order (order-dependent).
+    #   * Isolated  : this gate ALONE vs baseline (order-independent, non-cumulative).
+    baseline_kl_val = current_kl
     contribution_data = []
     contribution_data.append({
         "Step": 0, "Interaction": "Baseline (0 gates)",
         "CRX Angle (rad)": np.nan, "KL Divergence": current_kl,
-        "KL Change": 0.0, "Cumulative KL Reduction": 0.0
+        "KL Change": 0.0, "Cumulative KL Reduction": 0.0,
+        "Isolated KL": np.nan, "Isolated Reduction": 0.0,
     })
 
     for i, (gate_topology, gate_angle) in enumerate(zip(topology, angles)):
         step_num = i + 1
         current_sequence_topology = topology[:step_num]
         current_sequence_angles = angles[:step_num]
-        
+
         trial_circuit = add_crx_gates_and_measurements_to_circuit(
             base_combined_circuit, circ1.num_qubits, current_sequence_topology, current_sequence_angles
         )
         kl_divs = score_circuit_kl_divergences(trial_circuit, state_vec_probs_target1, state_vec_probs_target2, nshots)
-        
+
+        # Isolated (non-cumulative) contribution: circuit with ONLY this gate.
+        iso_circuit = add_crx_gates_and_measurements_to_circuit(
+            base_combined_circuit, circ1.num_qubits, [gate_topology], [gate_angle]
+        )
+        iso_divs = score_circuit_kl_divergences(iso_circuit, state_vec_probs_target1, state_vec_probs_target2, nshots)
+        iso_kl = sum(iso_divs) if (iso_divs and None not in iso_divs) else float("nan")
+
         if kl_divs and None not in kl_divs:
             new_kl = sum(kl_divs)
             kl_change = new_kl - current_kl
-            
+
             control_gene = gene_list[gate_topology[0]]
             target_gene = gene_list[gate_topology[1]]
-            
+
             contribution_data.append({
                 "Step": step_num,
                 "Interaction": f"{control_gene} -> {target_gene}",
                 "CRX Angle (rad)": gate_angle,
                 "KL Divergence": new_kl,
                 "KL Change": kl_change,
-                "Cumulative KL Reduction": new_kl - contribution_data[0]["KL Divergence"]
+                "Cumulative KL Reduction": new_kl - contribution_data[0]["KL Divergence"],
+                "Isolated KL": iso_kl,
+                "Isolated Reduction": baseline_kl_val - iso_kl,   # >0 => this gate alone lowers KL
             })
             current_kl = new_kl
         else:
@@ -1940,12 +2374,25 @@ def analyze_and_summarize_network(
     # NEW LOGIC: Use Baseline KL as the denominator for scientific grounding
     baseline_kl = contribution_df.iloc[0]["KL Divergence"]
     
-    if baseline_kl > 1e-9: 
-        # Percentage of the original error/divergence explained by this specific gate
+    if baseline_kl > 1e-9:
+        # % of baseline explained by this gate's cumulative step (order-dependent)
         contribution_df["% Contribution"] = (abs(contribution_df["KL Change"]) / baseline_kl) * 100
+        # % of baseline explained by this gate ALONE (isolated, non-cumulative)
+        contribution_df["% Isolated Contribution"] = (contribution_df["Isolated Reduction"] / baseline_kl) * 100
     else:
         contribution_df["% Contribution"] = 0.0
-        
+        contribution_df["% Isolated Contribution"] = 0.0
+
+    # Also express each step relative to the TOTAL KL
+    # reduction achieved by the full circuit (these sum to 100%), which is the
+    # quantity the manuscript text refers to. "% Contribution" above is relative
+    # to the baseline KL and does NOT sum to 100%.
+    total_reduction = baseline_kl - contribution_df["KL Divergence"].iloc[-1]
+    if total_reduction > 1e-12:
+        contribution_df["% of Total Reduction"] = (-contribution_df["KL Change"] / total_reduction) * 100
+    else:
+        contribution_df["% of Total Reduction"] = 0.0
+
     contribution_df["CRX Angle (deg)"] = np.rad2deg(contribution_df["CRX Angle (rad)"])
 
     # --- 4. Generate Hub and Gene Set Summaries ---
@@ -1966,9 +2413,13 @@ def analyze_and_summarize_network(
         "KL Divergence": '{:.4f}',
         "KL Change": '{:.4f}',
         "Cumulative KL Reduction": '{:.4f}',
+        "Isolated KL": '{:.4f}',
+        "Isolated Reduction": '{:.4f}',
         "CRX Angle (rad)": '{:.4f}',
         "CRX Angle (deg)": '{:.2f}°',
-        "% Contribution": '{:.2f}%'
+        "% Contribution": '{:.2f}%',
+        "% Isolated Contribution": '{:.2f}%',
+        "% of Total Reduction": '{:.2f}%'
     }
     for col, f_str in formatters.items():
         if col in df_display.columns:
@@ -1988,137 +2439,48 @@ def analyze_and_summarize_network(
 
 
 def plot_quantum_relay_network(
-    topology, 
-    gene_list, 
-    gl_ct1, 
-    gl_ct2, 
-    valid_lr_pairs, 
+    topology,
+    gene_list,
+    gl_ct1,
+    gl_ct2,
+    valid_lr_pairs,
     contribution_df=None,
     title="Biologically Constrained Interaction Network",
     ct1_name="Cancer Cells",
     ct2_name="Fibroblasts",
-    figsize=(16, 10),
-    fname=None
+    figsize=(10, 6),
+    fname=None,
 ):
-    G = nx.Graph()
-    
-    # 1. Identify active signaling from topology
-    raw_edges = [(gene_list[c], gene_list[t]) for c, t in topology]
-    
-    # 2. Build edges first to determine node "activity" (degree)
-    edge_weights = {}
+    """Interaction network, rendered via qxct.plotting.interaction_network so it
+    matches every other figure (two columns, double-headed arrows, width = the
+    gate's KL contribution). Signature unchanged.
+
+    ``contribution_df`` (from analyze_and_summarize_network) sets the arrow
+    widths via its ``KL Change`` column; ``valid_lr_pairs`` is accepted for
+    backward compatibility but no longer needed for layout.
+    """
+    import matplotlib.pyplot as plt
+    from .plotting import interaction_network
+    n1 = len(gl_ct1)
+    idx = {g: i for i, g in enumerate(gene_list)}
+    contribs = None
     if contribution_df is not None:
-        baseline_kl = contribution_df.iloc[0]['KL Divergence']
+        w = {}
         for _, row in contribution_df.iterrows():
-            if "Baseline" in str(row['Interaction']): continue
-            parts = str(row['Interaction']).split(' -> ')
-            if len(parts) == 2:
-                u, v = parts[0].strip(), parts[1].strip()
-                # Weighting based on KL Change impact
-                weight = (abs(row['KL Change']) / baseline_kl) * 35 
-                edge_weights[(u, v)] = max(weight, 1.5)
-
-    final_edges = []
-    for u_gene, v_gene in raw_edges:
-        w = edge_weights.get((u_gene, v_gene), 2.0)
-        cell_u = 'CT1' if u_gene in gl_ct1 else 'CT2'
-        cell_v = 'CT1' if v_gene in gl_ct1 else 'CT2'
-        
-        if cell_u == cell_v:
-            final_edges.append((u_gene, v_gene, {'weight': w}))
-        else:
-            # Check for LR bridge re-direction
-            found_bridge = False
-            for lr_1, lr_2 in valid_lr_pairs:
-                c1_lr = 'CT1' if lr_1 in gl_ct1 else 'CT2'
-                c2_lr = 'CT1' if lr_2 in gl_ct1 else 'CT2'
-                
-                # Only use as bridge if it spans the two different cells
-                if (c1_lr != c2_lr): 
-                    final_edges.append((lr_1, lr_2, {'weight': w}))
-                    # Connect original genes to the bridge endpoints
-                    if cell_u == c1_lr: final_edges.append((u_gene, lr_1, {'weight': 2.0}))
-                    else: final_edges.append((u_gene, lr_2, {'weight': 2.0}))
-                    
-                    if cell_v == c2_lr: final_edges.append((v_gene, lr_2, {'weight': 2.0}))
-                    else: final_edges.append((v_gene, lr_1, {'weight': 2.0}))
-                    found_bridge = True
-                    break
-            
-            if not found_bridge:
-                final_edges.append((u_gene, v_gene, {'weight': w}))
-
-    G.add_edges_from(final_edges)
-
-    # 3. Add all nodes and define custom labels
-    node_labels = {}
-    for i, gene in enumerate(gene_list):
-        cell = 'CT1' if gene in gl_ct1 else ('CT2' if gene in gl_ct2 else 'Unknown')
-        G.add_node(gene, cell=cell)
-        
-        # LABEL LOGIC: Show Gene Name ONLY if connected. Always show q-index.
-        if G.degree(gene) > 0:
-            node_labels[gene] = f"q{i}\n{gene}"
-        else:
-            node_labels[gene] = f"q{i}"
-
-    # 4. Positioning: Manual rotation for inactive nodes to avoid older NetworkX errors
-    pos = {}
-    c1_center, c2_center = -5.0, 5.0
-    
-    for cell_type, center in [('CT1', c1_center), ('CT2', c2_center)]:
-        nodes_in_cell = [n for n, d in G.nodes(data=True) if d['cell'] == cell_type]
-        active = [n for n in nodes_in_cell if G.degree(n) > 0]
-        inactive = [n for n in nodes_in_cell if G.degree(n) == 0]
-        
-        # Place active nodes in the center lane
-        if active:
-            pos.update(nx.spring_layout(G.subgraph(active), center=(center, 0), scale=1.5, seed=42))
-        
-        # Place inactive nodes on a rotated shell to avoid horizontal signaling lines
-        if inactive:
-            n_inactive = len(inactive)
-            radius = 3.5
-            # Offset by 45 degrees (pi/4) so nodes stay away from the horizontal axis
-            angle_offset = np.pi / 4 
-            for j, node in enumerate(inactive):
-                theta = 2.0 * np.pi * j / n_inactive + angle_offset
-                pos[node] = np.array([center + radius * np.cos(theta), radius * np.sin(theta)])
-
-    # 5. Drawing
+            if "Baseline" in str(row.get("Interaction", "")):
+                continue
+            parts = str(row.get("Interaction", "")).split(" -> ")
+            if len(parts) == 2 and "KL Change" in row:
+                w[(parts[0].strip(), parts[1].strip())] = abs(float(row["KL Change"]))
+        contribs = [w.get((gene_list[c], gene_list[t]), 0.0) for c, t in topology]
     fig, ax = plt.subplots(figsize=figsize)
-    
-    # PI requested alpha 0.15 for cell ellipses
-    ax.add_patch(Ellipse((c1_center, 0), 8.5, 11, color='skyblue', alpha=0.15, zorder=0))
-    ax.add_patch(Ellipse((c2_center, 0), 8.5, 11, color='salmon', alpha=0.15, zorder=0))
-    
-    ax.text(c1_center, 5.2, ct1_name, ha='center', fontsize=16, fontweight='bold', color='blue')
-    ax.text(c2_center, 5.2, ct2_name, ha='center', fontsize=16, fontweight='bold', color='red')
-
-    # Draw Nodes
-    for cell_type, color, border in [('CT1', 'skyblue', 'blue'), ('CT2', 'salmon', 'red')]:
-        nodelist = [n for n, d in G.nodes(data=True) if d['cell'] == cell_type]
-        nx.draw_networkx_nodes(G, pos, nodelist=nodelist, node_color=color, 
-                               node_size=3500, edgecolors=border, ax=ax)
-
-    nx.draw_networkx_labels(G, pos, labels=node_labels, font_size=10, font_weight='bold', ax=ax)
-
-    # Draw Edges (Dashed purple for cross-cell, Solid gray for internal)
-    for u, v, data in G.edges(data=True):
-        is_inter = G.nodes[u]['cell'] != G.nodes[v]['cell']
-        nx.draw_networkx_edges(G, pos, edgelist=[(u, v)], 
-                               width=data.get('weight', 2.0),
-                               edge_color='purple' if is_inter else 'gray',
-                               style='--' if is_inter else '-', 
-                               alpha=0.6, ax=ax)
-
-    plt.title(title, fontsize=18, pad=30)
-    plt.axis('off')
-    
+    interaction_network(ax, list(topology), gene_list, n1, contributions=contribs,
+                        name1=ct1_name, name2=ct2_name, bidirectional=True)
+    ax.set_title(title, fontsize=12, pad=22)
+    fig.tight_layout()
     if fname:
-        plt.savefig(fname, bbox_inches='tight', transparent=True)
+        fig.savefig(fname, bbox_inches="tight", transparent=True, dpi=300)
         print(f"Figure saved as {fname}")
-
     plt.show()
 
 

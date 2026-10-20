@@ -118,54 +118,20 @@ def plot_joint_histogram(
     filename: str = None,
     title: str = 'Joint Histogram of Boolean Columns'
 ):
-    """
-    Plots the joint histogram, consistently in MSB-first order.
-
-    Args:
-        joint_counts: A Counter object of observed bit string counts (keys are MSB-first).
-        num_qubits: The total number of qubits/features.
-        features: Optional list of feature names, where features[i] maps to qubit q_i.
-                  (i.e., features[0] for q0, features[1] for q1, etc.)
-        figsize: Tuple specifying the figure size (width, height) in inches.
-        filename: Optional string to save the plot to a file (e.g., 'my_histogram.png').
-        title: String for the plot title.
-    """
-    all_bit_strings_msb_first = [''.join(format(i, f'0{num_qubits}b')) for i in range(2**num_qubits)]
-
-    counts = [joint_counts.get(bs, 0) for bs in all_bit_strings_msb_first]
-    sorted_bit_strings = all_bit_strings_msb_first
-    sorted_counts = counts
-
-    plt.figure(figsize=figsize)
-    plt.bar(sorted_bit_strings, sorted_counts)
-
-    xlabel_text = "Bit String ("
+    """Plot the joint histogram (raw counts, MSB-first) via qxct.plotting.data_histogram
+    so it matches every other figure. Signature unchanged."""
+    import matplotlib.pyplot as plt
+    from .plotting import data_histogram
+    counts = {format(i, f'0{num_qubits}b'): joint_counts.get(format(i, f'0{num_qubits}b'), 0)
+              for i in range(2 ** num_qubits)}
+    fig, ax = plt.subplots(figsize=figsize)
+    data_histogram(ax, counts, num_qubits, title)
     if features is not None:
-        feature_map_parts = []
-        for i in range(num_qubits - 1, -1, -1):
-            if i < len(features):
-                feature_map_parts.append(f"q{i}={features[i]}")
-            else:
-                feature_map_parts.append(f"q{i}")
-        xlabel_text += ", ".join(feature_map_parts) + ")"
-    else:
-        xlabel_text += f"q{num_qubits-1} ... q0)"
-
-    plt.xlabel(xlabel_text)
-    plt.title(title)
-    plt.xticks(rotation=45, ha="right")
-
-    for i, count in enumerate(sorted_counts):
-        if isinstance(count, float):
-            plt.text(sorted_bit_strings[i], count, f"{count:.2f}", ha='center', va='bottom')
-            plt.ylabel("Frequency (%)")
-        else:
-            plt.text(sorted_bit_strings[i], count, f"{count}", ha='center', va='bottom')
-            plt.ylabel("Frequency")
-
-    plt.tight_layout()
+        parts = [f"q{i}={features[i]}" if i < len(features) else f"q{i}" for i in range(num_qubits - 1, -1, -1)]
+        ax.set_xlabel("Bit String (" + ", ".join(parts) + ")")
+    fig.tight_layout()
     if filename:
-        plt.savefig(filename, bbox_inches='tight')
+        fig.savefig(filename, bbox_inches='tight', dpi=300)
     plt.show()
 
 

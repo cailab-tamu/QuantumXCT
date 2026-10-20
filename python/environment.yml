@@ -43,5 +43,7 @@ dependencies:
     - qiskit-ibm-runtime
     - qiskit-aer
     - qiskit-optimization
+    - pot==0.9.7          # Optimal Transport baseline (imported as `ot`)
+    - quimb==1.15.0       # Tensor-network transform + Born machine baselines
     - setuptools>=61.0     # Ensures your "pip install -e ." works
     - wheel

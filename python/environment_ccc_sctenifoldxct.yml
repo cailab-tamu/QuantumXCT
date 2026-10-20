@@ -1,0 +1,21 @@
+# scTenifoldXct (Python) — separate env; TensorFlow-based, pin python 3.10.
+# Create:  conda env create -f environment_ccc_sctenifoldxct.yml
+# Run:     conda activate ccc-sctenifold && python benchmark_sctenifoldXCT_py/sctenifoldXCT_benchmark.py
+# NOTE: scTenifoldXct pins several heavy deps; if solve is slow, create the env with
+#       just python+pip, then `pip install scTenifoldXct` and let pip resolve.
+name: ccc-sctenifold
+channels: [conda-forge, defaults]
+dependencies:
+  - python=3.10
+  - pip
+  - numpy
+  - pandas
+  - scipy
+  - scikit-learn
+  - matplotlib
+  - h5py
+  - hdf5plugin
+  - pip:
+      - scanpy>=1.9
+      - anndata>=0.9
+      - scTenifoldXct
