@@ -1,0 +1,17 @@
+Generating ligand-receptor stats for 5152 samples and 717 features
+Assuming that counts were `natural` log-normalized!
+Running CellPhoneDB
+Running Connectome
+Running log2FC
+Running NATMI
+Running SingleCellSignalR
+LIANA Mo: saved 1830 interactions
+Generating ligand-receptor stats for 2738 samples and 717 features
+Assuming that counts were `natural` log-normalized!
+Running CellPhoneDB
+Running Connectome
+Running log2FC
+Running NATMI
+Running SingleCellSignalR
+LIANA Co: saved 2011 interactions
+LIANA (Co vs Mo heuristic contrast): saved 2123 pairs -> /home/ssromerogon/github_repos/QuantumXCT/python/results/ccc_comparison/liana_co_vs_mo_diff.csv
