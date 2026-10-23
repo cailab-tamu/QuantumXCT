@@ -169,3 +169,26 @@ df.to_csv(out_csv, index=False)
 print(f"\nSaved -> {out_csv}")
 lossless = df[df["strategy"] != "dense(float16)"]
 print("lossless strategies all match reference:", bool(lossless["matches_reference"].all()))
+
+# ---- SI-ready LaTeX table of the density-matrix screening strategies ----
+_tex_cols = [("strategy", "Strategy", "s"), ("n_candidates", "Candidates", "d"),
+             ("overlap_pct", "Overlap (\\%)", "1"), ("max_signal", "Max signal", "4"),
+             ("time_ms", "Time (ms)", "2"), ("peak_KB", "Peak mem (KB)", "1")]
+def _cell(v, kind):
+    if kind == "s": return str(v).replace("_", "\\_")
+    if kind == "d": return f"{int(v)}"
+    return f"{float(v):.{int(kind)}f}"
+_body = ["    " + " & ".join(_cell(r[c], k) for c, _l, k in _tex_cols) + r"\\"
+         for _, r in df.iterrows()]
+_tex = (r"\begin{table}[h]" "\n" r"\centering" "\n"
+        r"\caption{Density-matrix candidate-screening strategies on the ovarian panel "
+        r"(threshold $\delta\rho>" + str(THRESHOLD) + r"$). All lossless strategies recover the "
+        r"identical candidate set (100\% overlap with the complex128 reference); float32 and the "
+        r"sparse float32 finder are several times faster and lighter, which is why float32 is the "
+        r"default for screening.}" "\n"
+        r"\label{tab:si_dm_strategies}" "\n"
+        r"\begin{tabular}{lrrrrr}" "\n" r"\toprule" "\n"
+        + " & ".join(c[1] for c in _tex_cols) + r"\\" "\n" r"\midrule" "\n"
+        + "\n".join(_body) + "\n" r"\bottomrule" "\n" r"\end{tabular}" "\n" r"\end{table}" "\n")
+open(os.path.join(OUT_DIR, "dm_strategies_benchmark.tex"), "w").write(_tex)
+print(f"Saved -> {os.path.join(OUT_DIR, 'dm_strategies_benchmark.tex')}")

@@ -812,7 +812,7 @@ def find_cnot_candidates_from_state_diff(
     if combined_amps0.size > 2 ** 12 and not (plot_filename or show_plot):
         cnot_candidates, stats = find_cnot_candidates_sparse(
             state_probs_initial1, state_probs_initial2, state_vec_probs_target1, state_vec_probs_target2,
-            threshold=threshold, search_mode=search_mode, norm=norm, precision="float64")
+            threshold=threshold, search_mode=search_mode, norm=norm, precision="float32")
         if verbose_print:
             nq = int(np.log2(combined_amps.size))
             print(f"\n--- CNOT Analysis ({search_mode}, sparse) ---")

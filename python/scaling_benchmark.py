@@ -42,6 +42,7 @@ import argparse
 import csv
 import gc
 import os
+import sys
 import time
 import traceback
 
@@ -180,6 +181,8 @@ ap.add_argument("--seed", type=int, default=42, help="master seed for reproducib
 ap.add_argument("--exact", action="store_true", help="exact statevector scoring (needed for 10+10)")
 ap.add_argument("--n-cells", type=int, default=N_CELLS, help="cells per synthetic population")
 ap.add_argument("--p-range", type=float, nargs=2, default=list(P_RANGE), help="gene ON-probability range")
+ap.add_argument("--plot-only", action="store_true",
+                help="skip the sweep; just (re)draw the curve from the existing scaling_results CSV")
 args = ap.parse_args()
 N_CELLS, P_RANGE = args.n_cells, tuple(args.p_range)
 
@@ -190,6 +193,91 @@ csv_path = os.path.join(OUT_DIR, f"scaling_results_{_sfx}.csv")
 fields = ["n_source", "n_target", "total_qubits", "n_candidates", "n_gates",
           "t_encode_s", "t_screen_s", "t_search_s", "t_optimize_s", "t_total_s",
           "dm_mem_est_GB", "rss_delta_GB", "scoring", "status"]
+
+
+def _plot(rows, sfx):
+    """Scaling plot of the per-stage WALL-CLOCK time vs total qubits: density-matrix
+    SCREENING (pruning), topology SEARCH and angle OPTIMIZATION plotted separately,
+    plus the total. Memory is NOT plotted -- it goes to a table (see _write_table)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    def _f(r, k):
+        try:
+            return float(r[k])
+        except Exception:
+            return float("nan")
+    ok = [r for r in rows if str(r.get("status")) == "ok"]
+    if not ok:
+        print("  (no successful points to plot)")
+        return
+    N = [_f(r, "total_qubits") for r in ok]
+    series = [
+        ("t_screen_s",   "density-matrix screening (pruning)", "#eb6834", "-o"),
+        ("t_search_s",   "topology search",                    "#2a78d6", "-o"),
+        ("t_optimize_s", "angle optimization",                 "#1baf7a", "-s"),
+        ("t_total_s",    "total",                              "#4a3aa7", "--"),
+    ]
+    fig, ax = plt.subplots(figsize=(6.0, 3.9))
+    for key, lab, col, style in series:
+        ax.plot(N, [_f(r, key) for r in ok], style, color=col, ms=4, lw=1.6, label=lab)
+    ax.set_xlabel("total qubits (source + target genes)")
+    ax.set_ylabel("wall-clock time (s)")
+    ax.set_yscale("log"); ax.grid(True, ls=":", alpha=0.5)
+    ax.legend(fontsize=8, loc="upper left")
+    ax.set_title(f"QuantumXCT scaling: screening vs search ({sfx} scoring)")
+    fig.tight_layout()
+    base = os.path.join(OUT_DIR, f"scaling_curve_{sfx}")
+    fig.savefig(base + ".png", dpi=300, bbox_inches="tight")
+    fig.savefig(base + ".pdf", bbox_inches="tight")
+    plt.close(fig)
+    print(f"  plot -> {base}.png / .pdf")
+    _write_table(ok, sfx)
+
+
+def _write_table(ok, sfx):
+    """Per-stage time + density-matrix memory table (the memory that used to be on the
+    plot now lives here). Writes scaling_table_{sfx}.csv and .tex."""
+    import csv as _csv
+
+    def _f(r, k):
+        try:
+            return float(r[k])
+        except Exception:
+            return float("nan")
+    cols = [("total_qubits", "Qubits", 0), ("n_candidates", "Candidates", 0),
+            ("t_screen_s", "Screening (s)", 3), ("t_search_s", "Search (s)", 3),
+            ("t_optimize_s", "Angle opt. (s)", 3), ("t_total_s", "Total (s)", 3),
+            ("dm_mem_est_GB", "DM memory (GB)", 3)]
+    csv_out = os.path.join(OUT_DIR, f"scaling_table_{sfx}.csv")
+    with open(csv_out, "w", newline="") as f:
+        w = _csv.writer(f); w.writerow([c[1] for c in cols])
+        for r in ok:
+            w.writerow([f"{_f(r, k):.{nd}f}" if nd else int(_f(r, k)) for k, _lab, nd in cols])
+    body = []
+    for r in ok:
+        body.append("    " + " & ".join(
+            (f"{int(_f(r, k))}" if nd == 0 else f"{_f(r, k):.{nd}f}") for k, _lab, nd in cols) + r"\\")
+    tex = (r"\begin{table}[h]" "\n" r"\centering" "\n"
+           r"\caption{Per-stage wall-clock time and density-matrix memory of QuantumXCT versus "
+           r"problem size (" + sfx + r" scoring). Screening is the density-matrix candidate pruning; "
+           r"above 12 qubits it uses the sparse float32 finder, which keeps it cheap while the dense "
+           r"$4^N$ memory estimate grows.}" "\n"
+           r"\label{tab:si_scaling_" + sfx + r"}" "\n"
+           r"\begin{tabular}{rrrrrrr}" "\n" r"\toprule" "\n"
+           + " & ".join(c[1] for c in cols) + r"\\" "\n" r"\midrule" "\n"
+           + "\n".join(body) + "\n" r"\bottomrule" "\n" r"\end{tabular}" "\n" r"\end{table}" "\n")
+    open(os.path.join(OUT_DIR, f"scaling_table_{sfx}.tex"), "w").write(tex)
+    print(f"  table -> {csv_out} / .tex")
+
+
+if args.plot_only:
+    import csv as _csv
+    with open(csv_path) as _fh:
+        _rows = list(_csv.DictReader(_fh))
+    _plot(_rows, _sfx)
+    sys.exit(0)
 
 _scoring = "EXACT statevector (shot-noise-free)" if args.exact else f"Aer shot sampling ({args.shots} shots)"
 print("=" * 78)

@@ -12,7 +12,6 @@ config      Configuration dataclasses (encoding, backend, search, mitigation)
 hardware    Backend selection, error mitigation, hardware "assert quality" run
 model       QuantumXct — the object-oriented orchestrator
 exact       Exact (shot-noise-free) scoring, exact contribution tables, local-RY null
-budget      Effective-degrees-of-freedom budget-matched baseline benchmark (v2)
 
 Two ways to use qxct
 --------------------
@@ -27,10 +26,7 @@ Two ways to use qxct
 
 from .encoding import (
     create_joint_histogram,
-    create_percent_joint_histogram,
-    count_boolean_vector_occurrences,
     plot_joint_histogram,
-    normalize_counts,
 )
 
 from .circuits import (
@@ -132,14 +128,13 @@ from .metrics import (
     synthetic_ground_truth,
     SIMULATOR_EDGES,
 )
-# Exact scoring and effective-degrees-of-freedom budget benchmark
+# Exact scoring
 from .exact import (
     ExactScorer,
     exact_contribution_table,
     exact_score_circuit,
     use_exact_scoring,
 )
-from .budget import benchmark_budget_matched_v2, mps_dof, mpo_dof
 
 __version__ = "0.2.0"
 __author__ = "Selim Romero"

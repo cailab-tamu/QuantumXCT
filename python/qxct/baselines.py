@@ -386,6 +386,7 @@ def benchmark_budget_matched(
     ot_multiples=(1,),
     qx_best_effort: bool = True,
     qx_max_greedy_depth: Optional[int] = None,
+    qx_kl_tol: Optional[float] = None,
 ) -> dict:
     """Fair, budget-matched Benchmark B.
 
@@ -400,21 +401,23 @@ def benchmark_budget_matched(
     (Pass longer tuples to tn_bond_dims / born_bond_dims / ot_multiples if you do
     want a capacity sweep.)
 
-    qx_best_effort (default True): run QuantumXCT with no KL early-stop
-    (kl_tol = 0, multi-epoch) so it keeps adding gates until KL stops improving,
-    then keep the best — instead of stopping early at a few gates. This lets
-    QuantumXCT compete on KL at a budget comparable to the tensor networks' minimum
-    parameter footprint. Note: tensor networks have a floor (bond_dim=1) that may
-    still exceed a very small QuantumXCT circuit — that parameter-efficiency gap is
-    itself a result.
+    qx_best_effort (default True): run QuantumXCT best-effort, i.e. keep adding
+    gates (multi-epoch) until a longer network no longer buys more than the
+    selection tolerance in KL, then keep the best — instead of stopping early at a
+    few gates. The tolerance is ``qx_kl_tol`` if given, else 0.0 (keep any link
+    that helps at all). A small floor like 0.05 drops negligible links for a
+    cleaner best-effort network. This lets QuantumXCT compete on KL at a budget
+    comparable to the tensor networks' minimum parameter footprint. Note: tensor
+    networks have a floor (bond_dim=1) that may still exceed a very small
+    QuantumXCT circuit — that parameter-efficiency gap is itself a result.
 
     Returns the QuantumXCT budget, the sweep DataFrame, and a matched-only summary.
     """
-    # --- QuantumXCT: discover the budget (best-effort = no KL early stop) ---
+    # --- QuantumXCT: discover the budget (best-effort search) ---
     cfg_q = config
     if qx_best_effort:
         import dataclasses
-        se = dataclasses.replace(config.search, kl_tol=0.0)
+        se = dataclasses.replace(config.search, kl_tol=(0.0 if qx_kl_tol is None else float(qx_kl_tol)))
         if qx_max_greedy_depth is not None:
             se = dataclasses.replace(se, max_greedy_depth=qx_max_greedy_depth)
         cfg_q = dataclasses.replace(config, search=se)

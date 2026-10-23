@@ -224,7 +224,8 @@ def plot_scope_report(
     circ = add_crx_gates_and_measurements_to_circuit(
         base, res["circ1"].num_qubits, list(topology), list(angles))
 
-    # 2) circuit diagram (text always; mpl best-effort — needs pylatexenc)
+    # 2) circuit diagram (text always; the colored compact figure is the standard,
+    #    identical to make_search_figures — coloured state-prep boxes + CRX topology)
     if draw_circuit:
         print(f"\n[{tag}] optimized circuit ({len(topology)} CRX gates):")
         try:
@@ -232,7 +233,8 @@ def plot_scope_report(
         except Exception as e:
             print(f"  (text draw unavailable: {e})")
         try:
-            fig = circ.draw(output="mpl", style="clifford", fold=40, scale=0.6)
+            from .plotting import circuit_figure
+            fig = circuit_figure(list(topology), list(angles), gene_list, len(gl_ct1))
             fig.savefig(_os.path.join(out_dir, f"{tag}_circuit_optimized.png"),
                         dpi=300, bbox_inches="tight")
             if show:
@@ -240,7 +242,7 @@ def plot_scope_report(
             else:
                 plt.close(fig)
         except Exception as e:
-            print(f"  (mpl circuit diagram skipped: {e})")
+            print(f"  (circuit diagram skipped: {e})")
 
     # 3) measurement histograms of the optimized circuit
     plot_measurement_histograms(
