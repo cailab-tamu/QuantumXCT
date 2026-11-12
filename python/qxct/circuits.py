@@ -1283,7 +1283,6 @@ def find_best_cnot_sequence_multi_epoch(
     threshold: float = 0.1,
     search_mode: str = "abs", # abs, pos, neg
     kl_tol: float = 0.05,
-    ratio_kl_tol: float = 0.6,
     max_greedy_depth: int = 30
 ):
     """
@@ -1415,6 +1414,15 @@ def find_best_cnot_sequence_multi_epoch(
     end_total_time = time.time()
     print(f"\nTotal search took: {end_total_time - start_total_time:.2f} seconds.")
 
+    # Diagnostic: the lowest KL ANY explored candidate reached (before Occam's-razor
+    # selection), alongside the parsimonious network actually selected. Shows how much
+    # lower the loss could go by adding gates that Occam's razor rejects as not worth it.
+    if evaluation_history:
+        _min_kl = min(k for k, _ in evaluation_history)
+        _min_seq = min(evaluation_history, key=lambda x: x[0])[1]
+        print(f"[occam] deepest explored: {len(_min_seq)} gates, min KL {_min_kl:.6f}  |  "
+              f"selected (Occam): {len(best_overall_sequence)} gates, KL {best_overall_kl_sum:.6f}")
+
     return best_overall_sequence, best_overall_kl_sum
 
 
@@ -1427,7 +1435,6 @@ def _single_cnot_insertion_search(
     target_probs2: dict,
     nshots: int,
     kl_tol: float, 
-    ratio_kl_tol: float,
     current_baseline_kl: float = float('inf') # Added this to anchor the search
 ):
     """
@@ -1479,7 +1486,6 @@ def _single_cnot_deletion_search(
     target_probs2: dict,
     nshots: int,
     kl_tol: float, 
-    ratio_kl_tol: float 
 ):
     """
     Finds the single CNOT whose removal yields the best KL divergence sum,
@@ -1537,7 +1543,6 @@ def _pairwise_addition_search(
     nshots: int,
     kl_tol: float = 0.05,
     nchoose: int = 2,
-    ratio_kl_tol: float = 0.6
 ):
     print("\n  - Starting Efficiency-Optimized Search -")
     start_total = time.time()
@@ -1562,7 +1567,7 @@ def _pairwise_addition_search(
         t0 = time.time()
         new_seq_s, new_kl_s, added_cnot = _single_cnot_insertion_search(
             base_circuit, ng_circ1, current_sequence, candidate_cnots,
-            target_probs1, target_probs2, nshots, kl_tol, ratio_kl_tol, 
+            target_probs1, target_probs2, nshots, kl_tol, 
             current_baseline_kl=best_kl_sum 
         )
         
@@ -1603,7 +1608,7 @@ def _pairwise_addition_search(
         t0 = time.time()
         new_seq_d, new_kl_d, deleted_cnot = _single_cnot_deletion_search(
             base_circuit, ng_circ1, current_sequence, candidate_cnots,
-            target_probs1, target_probs2, nshots, kl_tol, ratio_kl_tol
+            target_probs1, target_probs2, nshots, kl_tol
         )
         
         if deleted_cnot and new_kl_d < (best_kl_sum - 0.0001): # Use smaller epsilon for pruning
@@ -1636,7 +1641,6 @@ def find_best_cnot_sequence_iterative_n_wise(
     search_mode: str = "abs",  # "abs", "pos", or "neg"
     nchoose: int = 2,
     kl_tol: float = 0.05, 
-    ratio_kl_tol: float = 0.6,
     cnot_search_candidates: list = None,
     ):
     """
@@ -1684,7 +1688,7 @@ def find_best_cnot_sequence_iterative_n_wise(
     # --- Step 3: Pairwise Addition Phase ---
     best_add_sequence, best_add_kl_sum = _pairwise_addition_search(
         base_combined_circuit, ng_circ1, [], initial_cnot_config,
-        state_vec_probs_target1, state_vec_probs_target2, nshots, kl_tol, nchoose, ratio_kl_tol
+        state_vec_probs_target1, state_vec_probs_target2, nshots, kl_tol, nchoose
     )
     print(f"\n--- Pairwise Addition Result ---")
     print(f"Best sequence after addition: {best_add_sequence}")
@@ -2168,7 +2172,6 @@ def run_vqe_hybrid_search(
     threshold: float = 0.1,
     search_mode: str = "abs", # abs, pos, neg
     kl_tol: float = 0.01,
-    ratio_kl_tol: float = 0.6,
     max_greedy_depth: int = 30
 ) -> Tuple[Optional[List[Tuple[int, int]]], float, Optional[int]]:
     """
@@ -2187,7 +2190,7 @@ def run_vqe_hybrid_search(
         state_probs_initial1, state_probs_initial2 (dict): Initial state probabilities.
         state_vec_probs_target1, state_vec_probs_target2 (dict): Target state probabilities.
         num_solutions_to_test (int): The number of top VQE solutions to check (e.g., 3).
-        min_cnot_depth, nshots, threshold, kl_tol, ratio_kl_tol, max_greedy_depth:
+        min_cnot_depth, nshots, threshold, kl_tol, max_greedy_depth:
             Parameters to be passed directly to the internal `find_best_cnot_sequence_multi_epoch`
             greedy search function.
 
@@ -2251,7 +2254,6 @@ def run_vqe_hybrid_search(
             threshold=threshold,
             search_mode=search_mode,
             kl_tol=kl_tol,
-            ratio_kl_tol=ratio_kl_tol,
             max_greedy_depth=max_greedy_depth
         )
         
