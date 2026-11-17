@@ -4,9 +4,9 @@ run_all.py
 Run EVERYTHING that produces the QuantumXCT results, in dependency order, from
 one command. Executes the canonical result set:
 
-  0. 00_build_datasets.ipynb          build + check the two input datasets
-                                       (synthetic simulator, GSE224333 ovarian);
-                                       skips building what already exists
+  0. simCellsSpace/simulate_cells.ipynb   simulate + verify the synthetic dataset (seed 42)
+     data_prep/build_ovarian.ipynb        download GSE224333 + assemble + verify the ovarian dataset
+     00_build_datasets.ipynb              check both datasets are present and complete
   1. qxct_pred_classic_sim_oo.ipynb   simulated cells: intra/inter/all scopes,
                                        edge/direction recovery, L1-vs-L2 encoding
   2. qxct_ovarian_cocultured_oo.ipynb  merged ovarian: single-pipeline demo +
@@ -34,19 +34,19 @@ Usage (from the QuantumXCT/python folder, in your qiskit-env):
     python run_all.py --timeout 10800        # impose a 3h per-CELL cap (default: no cap)
     python run_all.py --quality              # pass --quality to the DM benchmark step
 
-Step keys: data, sim, ovarian, scaling, scaling_exact, dm, exact, table2, scopes_ov, scopes_sim,
-boot_ov, boot_sim, budget, benchAB, algos, post, hwdry, ccc, figs, anglefig,
-anglefig_exact, datahist, searchfigs, searchfigs_exact, paper, verify, tests, codemap
+Step keys: data_sim, data_ovarian, data, sim, ovarian, scaling, scaling_exact, dm, exact, table2, scopes_ov, scopes_sim,
+boot_ov, boot_sim, benchtbl, benchAB, algos, post, tableS8, hwdry, ccc, figs, anglefig,
+anglefig_exact, datahist, searchfigs, searchfigs_exact, lrnets, tests
 
 Figure scoring: the paper/poster figures are SAMPLED (real Aer, 5000 shots) — that is
 the `anglefig` and `searchfigs` steps. Their EXACT statevector counterparts (shot-noise-
 free, for SI verification only) are `anglefig_exact` and `searchfigs_exact`, written to
 separate *_exact files/folders so they never overwrite the sampled ones. Running the whole
 set produces both; the contribution/scope/bootstrap tables (exact, table2,
-scopes_*, boot_*, budget, benchAB, algos, post) stay exact by design (SI Section S4).
+scopes_*, boot_*, benchtbl, benchAB, algos, post) stay exact by design (SI Section S4).
 
 Analyses only (fast path, ~30-90 min without the bootstraps):
-    python run_all.py --only exact table2 scopes_ov scopes_sim budget benchAB algos post hwdry figs paper verify tests
+    python run_all.py --only exact table2 scopes_ov scopes_sim benchtbl benchAB algos post tableS8 hwdry figs tests
 Everything (the two notebooks and the bootstraps are the slow steps):
     python run_all.py
 """
@@ -63,8 +63,12 @@ LOG_PATH = os.path.join(RESULTS, "run_all_log.txt")
 
 # key -> (kind, path, human description). kind in {notebook, script, pytest}
 STEPS = [
+    ("data_sim", "notebook", os.path.join("simCellsSpace", "simulate_cells.ipynb"),
+     "Simulate + verify the synthetic dataset (seed 42) -> sim_cells_datasets_co_mo_simulated_classical.h5ad"),
+    ("data_ovarian", "notebook", os.path.join("data_prep", "build_ovarian.ipynb"),
+     "Download GSE224333 + assemble + verify -> dataset_co_mo2.h5ad (needs internet)"),
     ("data",    "notebook", "00_build_datasets.ipynb",
-     "Build + check the inputs: synthetic simulator (seeded) and GSE224333 ovarian; skips what exists"),
+     "Check that both input datasets are present and complete"),
     ("sim",     "notebook", "qxct_pred_classic_sim_oo.ipynb",
      "Simulated cells: scopes (intra/inter/all), edge+direction recovery, L1-vs-L2"),
     ("ovarian", "notebook", "qxct_ovarian_cocultured_oo.ipynb",
@@ -96,6 +100,8 @@ STEPS = [
      "Algorithm comparison incl. VQE-hybrid at threshold 0.02"),
     ("post",    "script",   os.path.join("analysis_tools", "post_tables.py"),
      "Edge recovery (corrected ground truth), single-edge scores, bootstrap hub/target tables"),
+    ("tableS8", "script",   os.path.join("analysis_tools", "recovery_table_s8.py"),
+     "SI Table S8: synthetic edge/direction recovery from the saved exact topologies (after scopes_sim)"),
     ("hwdry",   "script",   os.path.join("benchmarks", "hardware", "run_hardware_postopt.py"),
      "Post-optimization circuit: exact + noisy-device dry run (add --hardware to submit)"),
     ("ccc",     "script",   "cci_benchmarks/collector_ccc_comparison.py",
@@ -117,14 +123,8 @@ STEPS = [
      "LR interaction networks: restricted (validated ligand-receptor only) vs unrestricted (all discovered "
      "cross-cell links) at best-effort (kl_tol=0.01), balanced (0.05) and interpretable (0.1) tolerances; "
      "exact scoring -> results/analyses/lr_networks (+ JSON to re-plot without re-running)"),
-    ("paper",   "script",   os.path.join("analysis_tools", "sync_to_paper.py"),
-     "Copy SI figures into QuantumXCT_KL_paper/revision and rebuild the PDFs"),
-    ("verify",  "script",   os.path.join("analysis_tools", "verify_numbers.py"),
-     "Check every number quoted in the revised manuscript/SI against the results"),
     ("tests",   "pytest",   "tests",
      "Integrity tests (encodings, bit order, exact scorer, candidate finders, sampler options)"),
-    ("codemap", "script",   os.path.join("analysis_tools", "make_code_map.py"),
-     "Regenerate CODE_MAP.txt (functions, line ranges, provenance tags)"),
 ]
 
 # extra command-line arguments for script steps
@@ -135,7 +135,7 @@ STEP_ARGS = {"scopes_ov": ["ovarian_basic"], "scopes_sim": ["sim_basic"],
 
 # Datasets each step needs; warn (don't abort) if missing.
 DATASET_REQ = {
-    "sim":     [os.path.join("simCellsSpace", "sim_cells_datasets_co_mo_simulated_classical.h5ad")],
+    "sim":     ["sim_cells_datasets_co_mo_simulated_classical.h5ad"],
     "ovarian": ["dataset_co_mo2.h5ad"],
     "dm":      ["dataset_co_mo2.h5ad"],
 }

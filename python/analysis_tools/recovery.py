@@ -4,7 +4,7 @@ import json, itertools, sys, os
 sys.path.insert(0, os.getcwd())
 import networkx as nx
 from scipy.stats import hypergeom
-GT_DIRECT = [(50,60),(60,70),(70,71),(70,72),(70,80),(80,90),(73,74),(73,75),(73,76)]  # simulate_cells.py
+GT_DIRECT = [(50,60),(60,70),(70,71),(70,72),(70,80),(80,90),(73,74),(73,75),(73,76)]  # simCellsSpace/simulate_cells.ipynb
 def evaluate(topology, genes, label):
     ids=[int(g.split('_')[1]) for g in genes]
     G=nx.DiGraph(GT_DIRECT)

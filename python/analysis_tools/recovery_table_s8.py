@@ -11,7 +11,7 @@ import os, sys, math
 sys.path.insert(0, os.getcwd())
 import pandas as pd
 
-# --- simulator ground truth (simCellsSpace/simulate_cells.py) ---
+# --- simulator ground truth (simCellsSpace/simulate_cells.ipynb) ---
 GT = [(50, 60), (60, 70), (70, 71), (70, 72), (70, 80), (80, 90),
       (73, 74), (73, 75), (73, 76)]
 # the 6-gene synthetic panel  {g50, g90 | g60, g70, g71, g80}

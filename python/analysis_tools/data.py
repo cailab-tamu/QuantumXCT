@@ -18,7 +18,7 @@ def _hist(X):
     return dict(create_joint_histogram((X > 0).astype(int))[0])
 
 
-def load_sim(path="simCellsSpace/sim_cells_datasets_co_mo_simulated_classical.h5ad",
+def load_sim(path="sim_cells_datasets_co_mo_simulated_classical.h5ad",
              ct1=SIM_CT1, ct2=SIM_CT2, return_matrices=False):
     ad = sc.read_h5ad(path)
     ad.X = ad.layers["counts"]

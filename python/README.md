@@ -9,7 +9,7 @@ the scripts that rebuild the input data, and the benchmarks.
 conda env create -f environment.yml     # Python 3.11, Qiskit 2.1, scanpy, ... -> env "qiskit-env"
 conda activate qiskit-env
 pip install -e .                        # editable install of the qxct package
-pip install GEOparse                    # only to download the ovarian data (00_build_datasets)
+pip install GEOparse                    # only to download the ovarian data (data_prep/build_ovarian.ipynb)
 ```
 
 Run notebooks and scripts from this `python/` folder. The notebooks in subfolders switch to
@@ -114,13 +114,52 @@ report = qx.assert_on_hardware(backend=my_ibm_backend,
                                mitigation=MitigationConfig(measurement_mitigation=True))
 ```
 
-## Reproduce the paper
+## Walkthrough: reproduce the paper
+
+Run the notebooks in this order, from this `python/` folder. Each one shows its figures inline
+and saves them, with its tables, under `results/`.
+
+**1. Build the data** (start here)
+
+| Notebook | What it does | Output |
+|---|---|---|
+| [`simCellsSpace/simulate_cells.ipynb`](simCellsSpace/simulate_cells.ipynb) | Simulates the synthetic tissue with a known network (seed 42) and checks it against stored reference histograms | `sim_cells_datasets_co_mo_simulated_classical.h5ad`, `results/data/` |
+| [`data_prep/build_ovarian.ipynb`](data_prep/build_ovarian.ipynb) | Downloads GEO GSE224333, re-attaches the stored annotations and checks the result (needs internet) | `dataset_co_mo2.h5ad`, `results/data/` |
+| [`00_build_datasets.ipynb`](00_build_datasets.ipynb) | Confirms both datasets are present and complete | |
+
+**2. Main results**
+
+| Notebook | What it does | Output |
+|---|---|---|
+| [`qxct_pred_classic_sim_oo.ipynb`](qxct_pred_classic_sim_oo.ipynb) | Synthetic benchmark: search algorithms, GRN / LR / GRN+LR scopes, baselines, edge and direction recovery against the ground truth, L1 vs L2 | `results/classic_sim/` |
+| [`qxct_ovarian_cocultured_oo.ipynb`](qxct_ovarian_cocultured_oo.ipynb) | Ovarian co-culture: single run, scopes, angle initialization, budget-matched baselines, L1 vs L2, search algorithms | `results/ovarian_cocultured/` |
+
+**3. Benchmarks** (any order after step 2)
+
+| Notebook | What it does | Output |
+|---|---|---|
+| [`benchmarks/dm_strategies/dm_strategies_benchmark.ipynb`](benchmarks/dm_strategies/dm_strategies_benchmark.ipynb) | Dense vs sparse density-matrix screening: same candidates, time, memory | `results/dm_strategies/` |
+| [`benchmarks/scaling/scaling_benchmark.ipynb`](benchmarks/scaling/scaling_benchmark.ipynb) | Cost of the search as the number of genes grows | `results/scaling/` |
+| [`benchmarks/hardware/hardware_validation.ipynb`](benchmarks/hardware/hardware_validation.ipynb) | Optimized ovarian circuit on IBM hardware (simulator by default; needs step 2) | `results/hardware/` |
+
+**4. Supplementary tables and figures**
+
+[`analysis_tools/make_all_figures.ipynb`](analysis_tools/make_all_figures.ipynb) regenerates the
+figures. The SI tables come from the scripts in `analysis_tools/`, run in the right order by
+`run_all.py`:
 
 ```bash
-jupyter nbconvert --to notebook --execute --inplace 00_build_datasets.ipynb   # data
-python run_all.py            # every notebook, analysis and benchmark (long)
-python run_all.py --list     # the steps; run a subset with --only KEY ...
+python run_all.py --list     # every step, in order
+python run_all.py            # everything above, end to end (long)
+python run_all.py --only exact table2 scopes_ov scopes_sim post tableS8 figs   # SI tables + figures
 ```
+
+The comparison with CellChat, LIANA+ and scTenifoldXct needs its own environments:
+see [`cci_benchmarks/CCC_SETUP_README.md`](cci_benchmarks/CCC_SETUP_README.md).
+
+**Examples without data:** [`examples/run_pipeline.ipynb`](examples/run_pipeline.ipynb) (the API
+on toy counts) and [`examples/benchmark_grn_lr.ipynb`](examples/benchmark_grn_lr.ipynb) (the
+three scopes).
 
 ## Folder layout
 
@@ -128,15 +167,16 @@ Notebooks are the drivers, the `qxct` package holds the code, and every output g
 
 ```
 python/
-├── 00_build_datasets.ipynb                       build + check both input datasets   (run first)
+├── 00_build_datasets.ipynb                       index of the two data notebooks + presence check
 ├── qxct_pred_classic_sim_oo.ipynb                synthetic benchmark                 (main result)
 ├── qxct_ovarian_cocultured_oo.ipynb              ovarian co-culture, full analysis   (main result)
-├── qxct_pred_sc_cocultured_monocultured_oo.ipynb ovarian, single-pipeline version
 ├── run_all.py                                    runs everything in order (master script)
+├── sim_cells_datasets_co_mo_simulated_classical.h5ad   synthetic data   (built, not in git)
+├── dataset_co_mo2.h5ad                               ovarian data     (built, not in git)
 │
 ├── qxct/              the package (pip install -e .)
-├── data_prep/         scripts that rebuild the data from public sources
-├── simCellsSpace/     synthetic-tissue simulator notebook + its ground truth
+├── data_prep/         build_ovarian.ipynb (GEO download + verify), annotations, h5ad<->rds
+├── simCellsSpace/     simulate_cells.ipynb (builds + verifies the synthetic data) + ground truth
 ├── LR_databases/      known ligand-receptor pairs (Jin 2021 + Dimitrov 2022)
 ├── examples/          small examples that need no dataset
 ├── benchmarks/        self-contained benchmarks (DM strategies, scaling, hardware)
@@ -153,7 +193,6 @@ results/
 ├── data/                 joint-histogram grids of both datasets (notebook 00)
 ├── classic_sim/          synthetic notebook
 ├── ovarian_cocultured/   ovarian notebook (run.json is used by benchmarks/hardware)
-├── sc_cocultured/        single-pipeline ovarian notebook
 ├── analyses/             supplementary tables (csv) and figures (figures/, search_panels/, lr_networks/)
 ├── scaling/  dm_strategies/  hardware/  ccc_comparison/
 ├── benchmark_grn_lr/     examples/benchmark_grn_lr.ipynb
@@ -161,7 +200,7 @@ results/
 ```
 
 `*.h5ad`, `*.rds`, `results/` and caches are not in git: rebuild the data with
-`00_build_datasets.ipynb` and the results with the notebooks or `run_all.py`.
+`simCellsSpace/simulate_cells.ipynb` and `data_prep/build_ovarian.ipynb`, and the results with the notebooks or `run_all.py`.
 
 ## Tests
 

@@ -1,71 +1,25 @@
-# data_prep — rebuilding the inputs from public data
+# data_prep: the ovarian dataset
 
-This folder reconstructs the two datasets the analyses read:
-`dataset_co_mo2.h5ad` (ovarian, GEO GSE224333) and
-`simCellsSpace/sim_cells_datasets_co_mo_simulated_classical.h5ad` (synthetic).
+| File | What it is |
+|---|---|
+| `build_ovarian.ipynb` | Downloads GEO GSE224333, re-attaches the stored annotations, writes `python/dataset_co_mo2.h5ad` and verifies it |
+| `dataset_co_mo2_cell_metadata.csv` | Stored cell annotations (barcode, BatchID, CellType, ClusterID, CellCycle) |
+| `dataset_co_mo2_genes.txt` | Stored gene order |
+| `reference_histograms.csv` | Check values: cells, total counts and panel joint histograms per group |
+| `convert_h5ad_rds.R` | h5ad <-> rds conversion for the R tools (CellChat) |
 
-The easiest way is the notebook **`00_build_datasets.ipynb`** in `python/` (also step `data`
-of `run_all.py`): it runs the scripts below, skips datasets that already exist, and checks
-both with the same loaders the analyses use. The scripts can also be run by hand as shown.
+Run `build_ovarian.ipynb` (needs internet and `pip install GEOparse`). Its first step lists
+every GEO sample and the group it is assigned to; if one is wrong, set `MAP_OVERRIDES` in the
+notebook. The rebuilt file is identical to the one used in the paper, and the last step checks
+it against `reference_histograms.csv`.
 
-Run everything from the `QuantumXCT/python` folder, in the same conda env you use for
-the pipeline.
+Why the annotations are stored here: the published object uses plain 10x barcodes with no
+sample suffix, so the same barcode can occur in two samples. Each group (cancer / fibroblast x
+mono / co-culture) is joined only with its own sample, and cells keep the stored order.
 
-## Files
+For the R tools:
 
-- `export_metadata.py` — exports the preserved cell annotations from an existing
-  annotated `dataset_co_mo2.h5ad` to `dataset_co_mo2_cell_metadata.csv`
-  (barcode, BatchID, CellType, ClusterID, CellCycle) and the gene order to
-  `dataset_co_mo2_genes.txt`. These two small files are committed with the repo so
-  the annotations survive even without the large h5ad; `pull_ovarian.py` re-attaches
-  them to freshly downloaded counts. You only re-run this if you change the
-  annotated object.
-- `pull_ovarian.py` — downloads the raw counts for GEO series GSE224333 (in-vitro
-  monoculture + co-culture scRNA-seq of ovarian clear-cell carcinoma cells and
-  fibroblasts) and re-attaches the preserved annotations, joining on the cell
-  barcode within each sample, to rebuild `dataset_co_mo2.h5ad`.
-- `prepare_sim.py` — regenerates the synthetic benchmark dataset with a fixed seed,
-  writing `simCellsSpace/sim_cells_datasets_co_mo_simulated_classical.h5ad`.
-- `convert_h5ad_rds.R` — converts an h5ad to an `.rds` (SingleCellExperiment or
-  Seurat) and back, for the R-based cell-cell-interaction tools (CellChat).
+    Rscript data_prep/convert_h5ad_rds.R h5ad2rds dataset_co_mo2.h5ad dataset_co_mo2.rds
 
-## Order
-
-1. Ovarian counts:
-
-       python data_prep/pull_ovarian.py --dry-run      # inspect GSMs, confirm the BatchID mapping
-       python data_prep/pull_ovarian.py                # build dataset_co_mo2.h5ad
-
-   The dry run lists every sample in the series with the BatchID it was matched to
-   (Cancer Cells / Fibroblasts x Mono / Co). If a title was classified wrong, pass an
-   explicit mapping, e.g. `--map GSM1234="Cancer Cells (Mo)" GSM1235="Fibroblasts (Co)"`.
-   Then verify:
-
-       python -c "from analysis_tools.data import load_ovarian; load_ovarian(); print('load_ovarian OK')"
-
-2. Synthetic dataset:
-
-       python data_prep/prepare_sim.py
-       python -c "from analysis_tools.data import load_sim; load_sim(); print('load_sim OK')"
-
-3. (Only for the R CCI tools) convert as needed, e.g.
-
-       Rscript data_prep/convert_h5ad_rds.R h5ad2rds dataset_co_mo2.h5ad dataset_co_mo2.rds
-
-## Notes
-
-- The ovarian object uses plain 10x barcodes with no per-sample suffix, so the same
-  barcode can appear in more than one sample. `pull_ovarian.py` joins each BatchID
-  group only against its own sample's matrix, which keeps the cells distinct.
-- `prepare_sim.py` is seeded, so it is reproducible. The originally committed
-  synthetic h5ad was generated without a count-level seed and cannot be reproduced
-  bit-for-bit; to reproduce the published numbers exactly, keep the committed h5ad,
-  and to regenerate from scratch, run `prepare_sim.py` and then re-run the pipeline
-  so all downstream numbers come from the same seeded dataset.
-
-## Requirements
-
-- Python: `GEOparse`, `scanpy`, `anndata`, `pandas`, `scipy`, `scikit-learn`
-  (`pip install GEOparse scanpy`).
-- R (only for the converter): `zellkonverter`, `SingleCellExperiment` from
-  Bioconductor, and `Seurat` if you want a Seurat `.rds`.
+The synthetic dataset is built by `simCellsSpace/simulate_cells.ipynb`; `00_build_datasets.ipynb`
+in `python/` lists both and checks they are present.

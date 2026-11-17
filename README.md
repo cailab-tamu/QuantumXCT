@@ -50,16 +50,18 @@ result = qx.run()                                      # screen -> search -> opt
 
 No data are stored in the repository; everything is rebuilt from public sources.
 
-```bash
-cd python
-jupyter nbconvert --to notebook --execute --inplace 00_build_datasets.ipynb   # build + check data
-python run_all.py --list                                                      # see every step
-python run_all.py                                                             # run everything
-```
+Follow the step-by-step **[walkthrough in `python/README.md`](python/README.md#walkthrough-reproduce-the-paper)**:
+it lists every notebook in the order to run it, what it does and where its output goes.
 
-`00_build_datasets.ipynb` simulates the synthetic tissue and downloads the ovarian
-cancer-fibroblast co-culture data (GEO **GSE224333**). All results are written to
-`python/results/`.
+1. Data: `python/simCellsSpace/simulate_cells.ipynb` (synthetic tissue) and
+   `python/data_prep/build_ovarian.ipynb` (ovarian cancer-fibroblast co-culture, GEO **GSE224333**),
+   each verified against stored reference histograms.
+2. Main results: `python/qxct_pred_classic_sim_oo.ipynb` and `python/qxct_ovarian_cocultured_oo.ipynb`.
+3. Benchmarks: `python/benchmarks/{dm_strategies,scaling,hardware}/`.
+4. Supplementary tables and figures: `python/analysis_tools/`, or everything at once with
+   `python run_all.py` (from `python/`).
+
+All results are written to `python/results/`.
 
 ## Where to go next
 

@@ -20,8 +20,7 @@ from __future__ import annotations
 
 from typing import List, Tuple
 
-# Directed edges programmed in the simulator (data_prep/prepare_sim.py and
-# simCellsSpace/simulate_cells.ipynb). 70->71, 70->72 and 73->76 complete the
+# Directed edges programmed in the simulator (simCellsSpace/simulate_cells.ipynb). 70->71, 70->72 and 73->76 complete the
 # testable ground truth for the 6-gene panel {50, 90 | 60, 70, 71, 80}.
 SIMULATOR_EDGES = [(50, 60),                       # forward LR       (cell type A -> B)
                    (60, 70),                       # receptor -> master regulator (B)
