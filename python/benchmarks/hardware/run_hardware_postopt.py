@@ -36,6 +36,14 @@ Endianness: counts come back keyed MSB-first with qubit 0 rightmost, identical t
 the Aer path; verified in tests/test_review_integrity.py (also after a
 layout-changing transpilation to a 127-qubit device).
 """
+# --- Run from the QuantumXCT/python root wherever this file is launched from, so
+#     inputs (dataset_*.h5ad) are found there and outputs go to python/results/.
+import os as _os, sys as _sys
+_PY_ROOT = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", ".."))
+_os.chdir(_PY_ROOT)
+if _PY_ROOT not in _sys.path:
+    _sys.path.insert(0, _PY_ROOT)
+# ---
 import argparse
 import json
 import os

@@ -6,7 +6,9 @@ cands = [os.environ.get("QXCT_PAPER_DIR", ""), os.path.join(HERE, "..", "..", ".
 paper = next((d for d in cands if d and os.path.isdir(d)), None)
 if paper is None:
     raise SystemExit("paper revision folder not found; set QXCT_PAPER_DIR")
-for f in glob.glob("results/analyses/figures/*.pdf"):
+# copy ONLY the SI figures (figS1..figS6); never the intermediate
+# data_hist / angle_init_curves PDFs or the hand-built main figures.
+for f in glob.glob("results/analyses/figures/figS[0-9]*.pdf"):
     shutil.copy(f, paper)
 # angle-initialization figure: prefer the sampled ovarian curve from run_angle_init,
 # fall back to the legacy notebook output for backward compatibility.
@@ -15,7 +17,7 @@ ang_cands = (["results/analyses/figures/ovarian_angle_init_curves_sampled.png"]
              + ["results/ovarian_cocultured/all_angle_init_curves.png"])
 ang = next((p for p in ang_cands if os.path.exists(p)), None)
 if ang:
-    shutil.copy(ang, os.path.join(paper, "figS_angle_init.png"))
+    shutil.copy(ang, os.path.join(paper, "figS2_angle_init.png"))
     print("angle-init figure:", ang)
 else:
     print("WARNING: no angle-init figure found to copy")

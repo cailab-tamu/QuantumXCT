@@ -37,6 +37,14 @@ Run:
     python scaling_benchmark.py --exact --time-cap-s 7200   # up to 10+10 genes
     python scaling_benchmark.py --scope inter   # LR-only (no DM screening -> no 4^N wall)
 """
+# --- Run from the QuantumXCT/python root wherever this file is launched from, so
+#     inputs (dataset_*.h5ad) are found there and outputs go to python/results/.
+import os as _os, sys as _sys
+_PY_ROOT = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", ".."))
+_os.chdir(_PY_ROOT)
+if _PY_ROOT not in _sys.path:
+    _sys.path.insert(0, _PY_ROOT)
+# ---
 
 import argparse
 import csv
@@ -162,37 +170,37 @@ def _run_point(n1, n2, scope, shots, n_epochs, max_greedy_depth, threshold, kl_t
         "status": "ok",
     }
 
-ap = argparse.ArgumentParser()
-ap.add_argument("--max-qubits", type=int, default=20, help="largest n_source+n_target to attempt")
-ap.add_argument("--scope", default="all", choices=["all", "intra", "inter"],
-                help="'all'/'intra' use 4^N density screening (memory wall); 'inter' skips it")
-ap.add_argument("--shots", type=int, default=1000)
-ap.add_argument("--n-epochs", type=int, default=2, help="held small so the curve reflects size, not epoch count")
-ap.add_argument("--max-greedy-depth", type=int, default=4)
-ap.add_argument("--threshold", type=float, default=0.002)
-ap.add_argument("--kl-tol", type=float, default=0.01)
-ap.add_argument("--mem-fraction", type=float, default=0.6,
-                help="stop before predicted screening memory exceeds this fraction of RAM")
-ap.add_argument("--allow-oom", action="store_true",
-                help="ignore the memory prediction and push into the wall (may crash)")
-ap.add_argument("--time-cap-s", type=float, default=600.0,
-                help="stop the sweep once a single point exceeds this wall-time")
-ap.add_argument("--seed", type=int, default=42, help="master seed for reproducibility")
-ap.add_argument("--exact", action="store_true", help="exact statevector scoring (needed for 10+10)")
-ap.add_argument("--n-cells", type=int, default=N_CELLS, help="cells per synthetic population")
-ap.add_argument("--p-range", type=float, nargs=2, default=list(P_RANGE), help="gene ON-probability range")
-ap.add_argument("--plot-only", action="store_true",
-                help="skip the sweep; just (re)draw the curve from the existing scaling_results CSV")
-args = ap.parse_args()
-N_CELLS, P_RANGE = args.n_cells, tuple(args.p_range)
-
-np.random.seed(args.seed)
-os.makedirs(OUT_DIR, exist_ok=True)
-_sfx = "exact" if args.exact else "sampled"
-csv_path = os.path.join(OUT_DIR, f"scaling_results_{_sfx}.csv")
 fields = ["n_source", "n_target", "total_qubits", "n_candidates", "n_gates",
           "t_encode_s", "t_screen_s", "t_search_s", "t_optimize_s", "t_total_s",
           "dm_mem_est_GB", "rss_delta_GB", "scoring", "status"]
+
+
+def _parse_args(argv=None):
+    """Command-line options (see --help)."""
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--max-qubits", type=int, default=20, help="largest n_source+n_target to attempt")
+    ap.add_argument("--scope", default="all", choices=["all", "intra", "inter"],
+                    help="'all'/'intra' use 4^N density screening (memory wall); 'inter' skips it")
+    ap.add_argument("--shots", type=int, default=1000)
+    ap.add_argument("--n-epochs", type=int, default=2, help="held small so the curve reflects size, not epoch count")
+    ap.add_argument("--max-greedy-depth", type=int, default=4)
+    ap.add_argument("--threshold", type=float, default=0.002)
+    ap.add_argument("--kl-tol", type=float, default=0.01)
+    ap.add_argument("--mem-fraction", type=float, default=0.6,
+                    help="stop before predicted screening memory exceeds this fraction of RAM")
+    ap.add_argument("--allow-oom", action="store_true",
+                    help="ignore the memory prediction and push into the wall (may crash)")
+    ap.add_argument("--time-cap-s", type=float, default=600.0,
+                    help="stop the sweep once a single point exceeds this wall-time")
+    ap.add_argument("--seed", type=int, default=42, help="master seed for reproducibility")
+    ap.add_argument("--exact", action="store_true", help="exact statevector scoring (needed for 10+10)")
+    ap.add_argument("--n-cells", type=int, default=N_CELLS, help="cells per synthetic population")
+    ap.add_argument("--p-range", type=float, nargs=2, default=list(P_RANGE), help="gene ON-probability range")
+    ap.add_argument("--plot-only", action="store_true",
+                    help="skip the sweep; just (re)draw the curve from the existing scaling_results CSV")
+    return ap.parse_args(argv)
+
+
 
 
 def _plot(rows, sfx):
@@ -272,73 +280,87 @@ def _write_table(ok, sfx):
     print(f"  table -> {csv_out} / .tex")
 
 
-if args.plot_only:
-    import csv as _csv
-    with open(csv_path) as _fh:
-        _rows = list(_csv.DictReader(_fh))
-    _plot(_rows, _sfx)
-    sys.exit(0)
+def main(argv=None):
+    """Run the scaling sweep (the command-line entry point). Importing this module,
+    e.g. from scaling_benchmark.ipynb, only defines the helper functions."""
+    global N_CELLS, P_RANGE
+    args = _parse_args(argv)
+    N_CELLS, P_RANGE = args.n_cells, tuple(args.p_range)
+    np.random.seed(args.seed)
+    os.makedirs(OUT_DIR, exist_ok=True)
+    _sfx = "exact" if args.exact else "sampled"
+    csv_path = os.path.join(OUT_DIR, f"scaling_results_{_sfx}.csv")
+    if args.plot_only:
+        import csv as _csv
+        with open(csv_path) as _fh:
+            _rows = list(_csv.DictReader(_fh))
+        _plot(_rows, _sfx)
+        return
 
-_scoring = "EXACT statevector (shot-noise-free)" if args.exact else f"Aer shot sampling ({args.shots} shots)"
-print("=" * 78)
-print(f"SCORING MODE: {_scoring}")
-if args.exact:
-    print("  NOTE: this curve measures the runtime of EXACT statevector scoring, which is")
-    print("        NOT the shot-sampling pipeline. It is the variant that makes 10+10 feasible;")
-    print("        report it as such (see the 'scoring' column in the CSV).")
-print("=" * 78)
-print(f"RAM detected: {_TOTAL_RAM/1e9:.1f} GB | scope={args.scope} | "
-      f"stopping if screening would exceed {args.mem_fraction*100:.0f}% of RAM"
-      + ("" if args.scope == 'inter' else " (density screening ~ 4^N)"))
-print(f"{'size':>8} {'qubits':>6} {'cand':>5} {'gates':>5} "
-      f"{'screen(s)':>10} {'search(s)':>10} {'total(s)':>9} {'DMmem(GB)':>10}")
+    _scoring = "EXACT statevector (shot-noise-free)" if args.exact else f"Aer shot sampling ({args.shots} shots)"
+    print("=" * 78)
+    print(f"SCORING MODE: {_scoring}")
+    if args.exact:
+        print("  NOTE: this curve measures the runtime of EXACT statevector scoring, which is")
+        print("        NOT the shot-sampling pipeline. It is the variant that makes 10+10 feasible;")
+        print("        report it as such (see the 'scoring' column in the CSV).")
+    print("=" * 78)
+    print(f"RAM detected: {_TOTAL_RAM/1e9:.1f} GB | scope={args.scope} | "
+          f"stopping if screening would exceed {args.mem_fraction*100:.0f}% of RAM"
+          + ("" if args.scope == 'inter' else " (density screening ~ 4^N)"))
+    print(f"{'size':>8} {'qubits':>6} {'cand':>5} {'gates':>5} "
+          f"{'screen(s)':>10} {'search(s)':>10} {'total(s)':>9} {'DMmem(GB)':>10}")
 
-rows = []
-with open(csv_path, "w", newline="") as f:
-    writer = csv.DictWriter(f, fieldnames=fields)
-    writer.writeheader()
+    rows = []
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fields)
+        writer.writeheader()
 
-    for (n1, n2) in default_pairs(args.max_qubits):
-        N = n1 + n2
-        # memory guard (only meaningful when screening is used)
-        if args.scope != "inter" and N <= 12:          # dense screening only up to 12 qubits
-            est = dm_bytes(N)
-            if not args.allow_oom and est > args.mem_fraction * _TOTAL_RAM:
+        for (n1, n2) in default_pairs(args.max_qubits):
+            N = n1 + n2
+            # memory guard (only meaningful when screening is used)
+            if args.scope != "inter" and N <= 12:          # dense screening only up to 12 qubits
+                est = dm_bytes(N)
+                if not args.allow_oom and est > args.mem_fraction * _TOTAL_RAM:
+                    row = {k: "" for k in fields}
+                    row.update({"n_source": n1, "n_target": n2, "total_qubits": N,
+                                "dm_mem_est_GB": round(est / 1e9, 2),
+                                "status": "stopped: predicted OOM"})
+                    writer.writerow(row); f.flush(); rows.append(row)
+                    print(f"  {n1}+{n2:<5} {N:>6}  --  predicted screening memory "
+                          f"{est/1e9:.1f} GB > {args.mem_fraction*100:.0f}% RAM -> stopping "
+                          f"(use --allow-oom or --scope inter to push further)")
+                    break
+            try:
+                r = run_point(n1, n2, args.scope, args.shots, args.n_epochs,
+                              args.max_greedy_depth, args.threshold, args.kl_tol, seed=args.seed,
+                              exact=args.exact)
+                writer.writerow(r); f.flush(); rows.append(r)
+                print(f"  {n1}+{n2:<5} {N:>6} {r['n_candidates']:>5} {r['n_gates']:>5} "
+                      f"{r['t_screen_s']:>10} {r['t_search_s']:>10} {r['t_total_s']:>9} "
+                      f"{r['dm_mem_est_GB']:>10}")
+                gc.collect()
+                if r["t_total_s"] > args.time_cap_s:
+                    print(f"  time cap ({args.time_cap_s}s) exceeded — stopping sweep.")
+                    break
+            except MemoryError:
+                row = {k: "" for k in fields}
+                row.update({"n_source": n1, "n_target": n2, "total_qubits": N, "status": "MemoryError"})
+                writer.writerow(row); f.flush(); rows.append(row)
+                print(f"  {n1}+{n2}  -> MemoryError (the wall). Stopping.")
+                break
+            except Exception as e:
                 row = {k: "" for k in fields}
                 row.update({"n_source": n1, "n_target": n2, "total_qubits": N,
-                            "dm_mem_est_GB": round(est / 1e9, 2),
-                            "status": "stopped: predicted OOM"})
+                            "status": f"error: {type(e).__name__}"})
                 writer.writerow(row); f.flush(); rows.append(row)
-                print(f"  {n1}+{n2:<5} {N:>6}  --  predicted screening memory "
-                      f"{est/1e9:.1f} GB > {args.mem_fraction*100:.0f}% RAM -> stopping "
-                      f"(use --allow-oom or --scope inter to push further)")
+                print(f"  {n1}+{n2}  -> {type(e).__name__}: {e}")
+                traceback.print_exc()
                 break
-        try:
-            r = run_point(n1, n2, args.scope, args.shots, args.n_epochs,
-                          args.max_greedy_depth, args.threshold, args.kl_tol, seed=args.seed,
-                          exact=args.exact)
-            writer.writerow(r); f.flush(); rows.append(r)
-            print(f"  {n1}+{n2:<5} {N:>6} {r['n_candidates']:>5} {r['n_gates']:>5} "
-                  f"{r['t_screen_s']:>10} {r['t_search_s']:>10} {r['t_total_s']:>9} "
-                  f"{r['dm_mem_est_GB']:>10}")
-            gc.collect()
-            if r["t_total_s"] > args.time_cap_s:
-                print(f"  time cap ({args.time_cap_s}s) exceeded — stopping sweep.")
-                break
-        except MemoryError:
-            row = {k: "" for k in fields}
-            row.update({"n_source": n1, "n_target": n2, "total_qubits": N, "status": "MemoryError"})
-            writer.writerow(row); f.flush(); rows.append(row)
-            print(f"  {n1}+{n2}  -> MemoryError (the wall). Stopping.")
-            break
-        except Exception as e:
-            row = {k: "" for k in fields}
-            row.update({"n_source": n1, "n_target": n2, "total_qubits": N,
-                        "status": f"error: {type(e).__name__}"})
-            writer.writerow(row); f.flush(); rows.append(row)
-            print(f"  {n1}+{n2}  -> {type(e).__name__}: {e}")
-            traceback.print_exc()
-            break
 
-print(f"\nCSV written to {csv_path}")
-_plot(rows, _sfx)
+    print(f"\nCSV written to {csv_path}")
+    _plot(rows, _sfx)
+
+
+if __name__ == "__main__":
+    main()

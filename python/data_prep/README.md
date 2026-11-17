@@ -1,10 +1,12 @@
 # data_prep — rebuilding the inputs from public data
 
-This folder reconstructs the two datasets the benchmark reads. It is a one-time
-reproduction step you run by hand, as a FIRST step, before anything in `run_all.py`.
-Nothing here is imported or triggered by `run_all.py`; the benchmark simply assumes
-`dataset_co_mo2.h5ad` and `simCellsSpace/sim_cells_datasets_co_mo_simulated_classical.h5ad`
-already exist.
+This folder reconstructs the two datasets the analyses read:
+`dataset_co_mo2.h5ad` (ovarian, GEO GSE224333) and
+`simCellsSpace/sim_cells_datasets_co_mo_simulated_classical.h5ad` (synthetic).
+
+The easiest way is the notebook **`00_build_datasets.ipynb`** in `python/` (also step `data`
+of `run_all.py`): it runs the scripts below, skips datasets that already exist, and checks
+both with the same loaders the analyses use. The scripts can also be run by hand as shown.
 
 Run everything from the `QuantumXCT/python` folder, in the same conda env you use for
 the pipeline.

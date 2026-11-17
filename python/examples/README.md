@@ -12,10 +12,10 @@ supported — the OO layer is a thin, config-driven wrapper on top of it.
 
 | File | What it does |
 |------|--------------|
-| `run_pipeline.py` | End-to-end pipeline on synthetic data: encode → screen → search → optimize → analyze → hardware validation → save. |
-| `benchmark_grn_lr.py` | Benchmarks the three search scopes (GRN+LR, GRN-only, LR-only) and writes the KL-reduction, cumulative-ablation and isolated-contribution tables. |
+| `run_pipeline.ipynb` | End-to-end pipeline on synthetic data: encode → screen → search → optimize → analyze → hardware validation → save. |
+| `benchmark_grn_lr.ipynb` | Benchmarks the three search scopes (GRN+LR, GRN-only, LR-only) and writes the KL-reduction, cumulative-ablation and isolated-contribution tables. |
 
-Both run without any dataset or real hardware. Replace the `synthetic_data()` /
+Both run without any dataset or real hardware, from any folder: their first cell switches to `python/`, so outputs go to `python/results/`. Replace the `synthetic_data()` /
 `load_counts()` helpers with your own joint histograms to use them for real.
 
 ## Quick start
@@ -115,7 +115,7 @@ ideal simulation.
 
 ## The three benchmark scopes
 
-`benchmark_grn_lr.py` (via `qxct.benchmark.compare_scopes`) runs the full
+`benchmark_grn_lr.ipynb` (via `qxct.analysis.compare_scopes`) runs the full
 search+optimize for each scope and reports:
 
 * **GRN + LR** (`scope="all"`) — search every candidate link.

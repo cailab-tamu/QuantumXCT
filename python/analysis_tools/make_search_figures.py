@@ -47,7 +47,7 @@ from qxct import QuantumXct
 from qxct.exact import ExactScorer, marginals, use_exact_scoring
 from qxct.circuits import optimize_crx_angles
 from qxct.analysis import post_optimization_distributions
-from qxct.resources import curate_lr_pairs
+from LR_databases.lr_pairs import curate_lr_pairs
 import qxct.plotting as pl
 
 

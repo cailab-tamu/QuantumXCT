@@ -2,7 +2,7 @@
 qxct.metrics
 ============
 Edge- and direction-recovery metrics: how well a discovered topology matches a
-known ground-truth interaction network (for the synthetic benchmark).
+known interaction network that YOU supply.
 
 The discovered topology is the qubit-index edge list ``result.topology`` (a list
 of ``(control, target)`` tuples). It is mapped to gene-level directed edges the
@@ -12,9 +12,10 @@ same way the relay-network plot does::
 
 so predicted edges are directly comparable to the ground-truth edge set.
 
-Ground truth for the synthetic benchmark: the edges programmed in
-simCellsSpace/simulate_cells.py (see SIMULATOR_EDGES), optionally closed
-transitively (upstream ~> downstream).
+Ground truth is always an explicit input (``ground_truth_edges``). For the
+synthetic benchmark use ``simCellsSpace.ground_truth.synthetic_ground_truth()``;
+for a real dataset with known interactions pass your own list of
+``(source_gene, target_gene)`` tuples.
 """
 from __future__ import annotations
 
@@ -22,39 +23,6 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
-
-
-# Directed edges programmed in simCellsSpace/simulate_cells.py. The full list
-# includes 70->71, 70->72 and 73->76, which complete the testable ground truth
-# for the 6-gene panel {50,90 | 60,70,71,80}.
-SIMULATOR_EDGES = [(50, 60),               # forward LR  (A -> B)
-                   (60, 70),               # receptor -> master regulator (B)
-                   (70, 71), (70, 72), (70, 80),   # reactive GRN (B)
-                   (80, 90),               # retrograde LR (B -> A)
-                   (73, 74), (73, 75), (73, 76)]   # autonomous module
-
-
-def synthetic_ground_truth(gene_prefix: str = "Gene_",
-                           include_feedback_closure: bool = False,
-                           transitive: bool = False) -> List[Tuple[str, str]]:
-    """Directed ground-truth edges of the synthetic benchmark.
-
-    transitive=False : the direct edges programmed in the simulator.
-    transitive=True  : every ordered pair (a, b) with a directed causal path
-                       a ~> b (a CRX between an upstream and a downstream gene
-                       is a valid "functional shortcut").
-    include_feedback_closure is kept for backward compatibility: it adds 90->50,
-    which is NOT an edge of the simulator and should only be used as a
-    sensitivity analysis.
-    """
-    edges = list(SIMULATOR_EDGES)
-    if include_feedback_closure:
-        edges.append((90, 50))
-    if transitive:
-        import networkx as nx
-        G = nx.DiGraph(edges)
-        edges = [(a, b) for a in G for b in G if a != b and nx.has_path(G, a, b)]
-    return [(f"{gene_prefix}{a}", f"{gene_prefix}{b}") for a, b in edges]
 
 
 def _auc_from_scores(labels: np.ndarray, scores: np.ndarray) -> Tuple[float, float]:
@@ -118,20 +86,24 @@ def evaluate_edge_recovery(
     ground_truth_edges: Optional[List[Tuple[str, str]]] = None,
     contribution_df: Optional[pd.DataFrame] = None,
     contribution_col: Optional[str] = None,
-    gene_prefix: str = "Gene_",
-    include_feedback_closure: bool = False,
     out_dir: Optional[str] = None,
-    scope_tag: str = "synthetic",
+    scope_tag: str = "edge",
     show: bool = True,
 ) -> Dict:
     """Evaluate how well ``topology`` recovers the ground-truth network.
+
+    ``ground_truth_edges`` (required): the known directed edges, as gene-name
+    tuples ``[(source, target), ...]``.
 
     Returns a dict with precision, recall (directed), direction accuracy,
     ROC-AUC and PR-AUC, plus per-edge and summary DataFrames. If ``out_dir`` is
     given, saves the tables (CSV) and a PR/ROC figure there.
     """
-    if ground_truth_edges is None:
-        ground_truth_edges = synthetic_ground_truth(gene_prefix, include_feedback_closure)
+    if not ground_truth_edges:
+        raise ValueError(
+            "evaluate_edge_recovery needs ground_truth_edges=[(source_gene, target_gene), ...]. "
+            "For the synthetic benchmark use "
+            "simCellsSpace.ground_truth.synthetic_ground_truth().")
 
     # 1) qubit-index topology -> gene-level directed edges (same mapping as the plot)
     pred_edges = [(gene_list[c], gene_list[t]) for c, t in topology]
@@ -208,9 +180,6 @@ def evaluate_edge_recovery(
 
 def _plot_recovery(result, out_dir, scope_tag, show):
     import os
-    import matplotlib
-    if not show:
-        matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     pe = result["per_edge"].sort_values("contribution", ascending=False).reset_index(drop=True)

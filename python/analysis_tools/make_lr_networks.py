@@ -38,7 +38,7 @@ import matplotlib.pyplot as plt
 
 from qxct import QuantumXct
 from qxct.exact import use_exact_scoring, ExactScorer
-from qxct.resources import curate_lr_pairs
+from LR_databases.lr_pairs import curate_lr_pairs
 import qxct.plotting as pl
 from analysis_tools.run_search_exact import cfg, lab
 from analysis_tools.data import load_ovarian, load_sim, OV_CT1, OV_CT2, SIM_CT1, SIM_CT2

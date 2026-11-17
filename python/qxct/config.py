@@ -110,6 +110,11 @@ class SearchConfig:
     vqe_reps: int = 1                     # EfficientSU2 repetitions
     vqe_entanglement: str = "circular"    # linear | circular | full | pairwise | ...
     vqe_niter: int = 200                  # VQE optimizer iterations
+    vqe_optimization_level: Optional[int] = None  # Qiskit transpiler level (0-3) for the VQE ansatz.
+                                          # None (default) = automatic: 0 on an ideal simulator
+                                          # (no qubit-connectivity map), 3 on a real device or a
+                                          # device emulation (e.g. AerSimulator.from_backend).
+                                          # Set an int to force a level.
 
     def __post_init__(self):
         if self.candidate_scope not in ("all", "intra", "inter"):

@@ -7,7 +7,7 @@ from qxct.exact import ExactScorer, exact_contribution_table
 from analysis_tools.data import load_ovarian, OV_CT1, OV_CT2
 g=OV_CT1+OV_CT2; ix={x:i for i,x in enumerate(g)}
 H=load_ovarian(); sc=ExactScorer(*[vn(H[k],"l2") for k in ("ct1_mo","ct2_mo","ct1_co","ct2_co")])
-T={"N-wise":[("STAT3","PDGFRB",1.345),("PDGFB","STAT3",0.971),("PDGFRB","PDGFB",1.523)],
+T={"N-wise":[("PDGFB","HES4",3.1416),("PDGFB","PDGFRB",1.0199),("PDGFRB","PDGFB",2.5114),("PDGFB","TGFBR2",1.9131),("HES4","PDGFRB",1.5732),("TGFBR2","PDGFB",0.0),("STAT3","HES4",1.2655),("PDGFRB","STAT3",1.7114)],  # 8-gate exact L2 all (current Fig 3A)
    "Multi-epoch":[("STAT3","PDGFRB",1.416),("PDGFRB","PDGFB",1.433),("PDGFB","PDGFRB",2.260),("PDGFRB","STAT3",1.3e-7),("PDGFB","TGFBR2",1.8e-5)]}
 out=[]
 for alg,rows in T.items():

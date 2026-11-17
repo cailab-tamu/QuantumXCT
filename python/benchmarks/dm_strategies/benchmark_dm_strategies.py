@@ -20,11 +20,20 @@ strategy whose overlap < 100 %) and reports n_gates / final_kl / kl_delta_vs_ref
 Strategies that reproduce the reference set exactly are skipped there — their
 quality is identical by construction, so only a lossy set (e.g. float16) is run.
 
-Run from the QuantumXCT/python folder:
+Run (from any folder; it switches to QuantumXCT/python first), or use the driver
+notebook dm_strategies_benchmark.ipynb next to this file:
     conda activate qiskit-env
-    python benchmark_dm_strategies.py            # fast: sets, overlap, time, memory
-    python benchmark_dm_strategies.py --quality  # also the topology-KL quality check
+    python benchmarks/dm_strategies/benchmark_dm_strategies.py            # fast: sets, overlap, time, memory
+    python benchmarks/dm_strategies/benchmark_dm_strategies.py --quality  # also the topology-KL quality check
 """
+# --- Run from the QuantumXCT/python root wherever this file is launched from, so
+#     inputs (dataset_*.h5ad) are found there and outputs go to python/results/.
+import os as _os, sys as _sys
+_PY_ROOT = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", ".."))
+_os.chdir(_PY_ROOT)
+if _PY_ROOT not in _sys.path:
+    _sys.path.insert(0, _PY_ROOT)
+# ---
 import os, time, argparse, tracemalloc
 import numpy as np
 import pandas as pd

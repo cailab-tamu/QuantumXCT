@@ -12,6 +12,15 @@ config      Configuration dataclasses (encoding, backend, search, mitigation)
 hardware    Backend selection, error mitigation, hardware "assert quality" run
 model       QuantumXct — the object-oriented orchestrator
 exact       Exact (shot-noise-free) scoring, exact contribution tables, local-RY null
+analysis    Scope comparisons, ablation/contribution tables, L1-vs-L2 comparison
+baselines   Classical and tensor-network baselines (OT, TN transform, Born machine)
+scopes      Candidate scopes: within-cell (GRN), cross-cell (LR), all
+metrics     Edge/direction recovery against a ground truth you provide
+plotting    Histograms, state occupancy, angle traces, networks, circuits
+
+Dataset-specific helpers live outside the package:
+  LR_databases/lr_pairs.py      known ligand-receptor pairs (Jin 2021, Dimitrov 2022)
+  simCellsSpace/ground_truth.py the synthetic simulator's answer key
 
 Two ways to use qxct
 --------------------
@@ -119,14 +128,8 @@ from .scopes import (
     split_candidates_by_cell,
     enumerate_cnots,
 )
-from .resources import (
-    load_lr_resource,
-    curate_lr_pairs,
-)
 from .metrics import (
-    evaluate_edge_recovery,
-    synthetic_ground_truth,
-    SIMULATOR_EDGES,
+    evaluate_edge_recovery,     # ground truth is supplied by the caller
 )
 # Exact scoring
 from .exact import (

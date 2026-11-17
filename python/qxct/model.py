@@ -201,6 +201,11 @@ class QuantumXct:
         convert it to a QUBO / Ising Hamiltonian, minimize with a VQE over an
         EfficientSU2 ansatz, then run the classical hybrid refinement over the
         top-k VQE solutions.
+
+        The ansatz is transpiled for the backend at
+        ``config.search.vqe_optimization_level``. Default None = automatic: level 0
+        on an ideal simulator, level 3 on a real device or device emulation, where
+        Qiskit must map it onto the qubit connectivity and native gates.
         """
         from qiskit_optimization import QuadraticProgram
         from qiskit.circuit.library import EfficientSU2
@@ -241,9 +246,11 @@ class QuantumXct:
         _res, opt_params, _cost = vqe_solver(
             expanded, hamiltonian, backend,
             optimizer_method=self.config.optimizer.method, niter=s.vqe_niter,
+            optimization_level=s.vqe_optimization_level,
         )
         counts, _bound = evaluate_and_plot_ansatz(
             ansatz=expanded, params=opt_params, backend=backend, shots=1024, show_plot=False,
+            optimization_level=s.vqe_optimization_level,
         )
         topo, kl, _rank = run_vqe_hybrid_search(
             vqe_counts=counts, initial_cnot_config=initial_cnot_config,
@@ -259,11 +266,15 @@ class QuantumXct:
         return topo, kl
 
     def search_topology_grn_sequential(self):
-        """GRN-only optimization, one cell at a time.
+        """GRN-only search, one cell TYPE (qubit register) at a time.
 
-        Restricts candidates to within-cell (intra) links, optimizes cell 1's
-        internal topology to convergence, then cell 2's, and concatenates the two.
-        LR (cross-cell) links are not allowed to contribute.
+        "Cell" here means a cell type, i.e. one of the two qubit registers
+        (register 1 = cell type 1, qubits 0..n1-1; register 2 = cell type 2,
+        qubits n1..N-1), never an individual cell. The candidates are restricted to
+        within-register (intra, GRN) links, split by register with
+        ``split_candidates_by_cell``; register 1's internal topology is searched to
+        convergence, then register 2's, and the two are concatenated. Cross-register
+        (LR) links are excluded, so this is the "within-cell only" baseline.
         """
         self._require_encoded()
         s = self.config.search

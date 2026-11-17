@@ -69,10 +69,11 @@ def split_candidates_by_cell(
     candidates: List[Tuple[int, int]],
     ng_circ1: int,
 ) -> Dict[str, List[Tuple[int, int]]]:
-    """Split intra-cell (GRN) candidates into cell-1 and cell-2 groups.
+    """Split within-cell-type (GRN) candidates by qubit register.
 
-    Useful for the per-cell sequential GRN optimization (optimize cell 1's
-    internal topology, then cell 2's).
+    "cell1"/"cell2" are the two cell TYPES (registers): register 1 holds qubits
+    0..ng_circ1-1, register 2 the rest. Cross-register (LR) candidates are dropped.
+    Used by the per-register sequential GRN search.
     """
     cell1, cell2 = [], []
     for (c, t) in candidates:

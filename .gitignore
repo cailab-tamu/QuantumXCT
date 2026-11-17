@@ -173,3 +173,15 @@ cython_debug/
 .pypirc
 *.mat
 .claude/
+
+# ---------------------------------------------------------------------------
+# QuantumXCT: data and outputs are rebuilt (00_build_datasets.ipynb, run_all.py),
+# never committed
+# ---------------------------------------------------------------------------
+*.h5ad
+*.h5ad.bak
+*.rds
+python/results/
+python/recycle_bin/
+python/benchmark_out_sc/
+python/cci_benchmarks/**/grn_cache/

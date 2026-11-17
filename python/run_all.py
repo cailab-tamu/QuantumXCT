@@ -4,20 +4,25 @@ run_all.py
 Run EVERYTHING that produces the QuantumXCT results, in dependency order, from
 one command. Executes the canonical result set:
 
+  0. 00_build_datasets.ipynb          build + check the two input datasets
+                                       (synthetic simulator, GSE224333 ovarian);
+                                       skips building what already exists
   1. qxct_pred_classic_sim_oo.ipynb   simulated cells: intra/inter/all scopes,
                                        edge/direction recovery, L1-vs-L2 encoding
   2. qxct_ovarian_cocultured_oo.ipynb  merged ovarian: single-pipeline demo +
                                        benchmark A + angle curves + benchmark B +
                                        L1/L2 + algorithm comparison
-  3. scaling_benchmark.py             N-scaling / dense-vs-sparse memory & time,
+  3. benchmarks/scaling/scaling_benchmark.py   N-scaling / dense-vs-sparse memory & time,
                                        run twice: SAMPLED (step 'scaling') and EXACT
                                        ('scaling_exact') -> scaling_results_{sampled,exact}.csv
-  4. benchmark_dm_strategies.py       ovarian DM candidate-finder strategies
+  4. benchmarks/dm_strategies/benchmark_dm_strategies.py   ovarian DM candidate-finder strategies
                                        (add --quality for topology-KL check)
-  5. tests/test_dm_strategies.py      candidate-equivalence validation (pytest)
+  5. tests/                           integrity tests (pytest)
 
 Notebooks are executed IN PLACE (outputs saved back into the .ipynb), and each
-notebook/script also writes its own figures/tables under results/<...>/.
+notebook/script also writes its own figures/tables under results/<...>/. Scripts in
+subfolders (benchmarks/...) switch to this python/ folder first, so all outputs
+still land in python/results/.
 
 Usage (from the QuantumXCT/python folder, in your qiskit-env):
     conda activate qiskit-env
@@ -29,7 +34,7 @@ Usage (from the QuantumXCT/python folder, in your qiskit-env):
     python run_all.py --timeout 10800        # impose a 3h per-CELL cap (default: no cap)
     python run_all.py --quality              # pass --quality to the DM benchmark step
 
-Step keys: sim, ovarian, scaling, scaling_exact, dm, exact, table2, scopes_ov, scopes_sim,
+Step keys: data, sim, ovarian, scaling, scaling_exact, dm, exact, table2, scopes_ov, scopes_sim,
 boot_ov, boot_sim, budget, benchAB, algos, post, hwdry, ccc, figs, anglefig,
 anglefig_exact, datahist, searchfigs, searchfigs_exact, paper, verify, tests, codemap
 
@@ -58,15 +63,17 @@ LOG_PATH = os.path.join(RESULTS, "run_all_log.txt")
 
 # key -> (kind, path, human description). kind in {notebook, script, pytest}
 STEPS = [
+    ("data",    "notebook", "00_build_datasets.ipynb",
+     "Build + check the inputs: synthetic simulator (seeded) and GSE224333 ovarian; skips what exists"),
     ("sim",     "notebook", "qxct_pred_classic_sim_oo.ipynb",
      "Simulated cells: scopes (intra/inter/all), edge+direction recovery, L1-vs-L2"),
     ("ovarian", "notebook", "qxct_ovarian_cocultured_oo.ipynb",
      "Merged ovarian: pipeline demo, benchmark A, angle curves, benchmark B, L1/L2, algo comparison"),
-    ("scaling", "script", "scaling_benchmark.py",
+    ("scaling", "script", os.path.join("benchmarks", "scaling", "scaling_benchmark.py"),
      "N-scaling runtime/memory, SAMPLED Aer (2 epochs, depth 4, 1000 shots; SI S9) -> scaling_results_sampled.csv / scaling_curve_sampled.png"),
-    ("scaling_exact", "script", "scaling_benchmark.py",
+    ("scaling_exact", "script", os.path.join("benchmarks", "scaling", "scaling_benchmark.py"),
      "N-scaling, EXACT statevector (reaches 10+10 genes) -> scaling_results_exact.csv / scaling_curve_exact.png"),
-    ("dm",      "script",   "benchmark_dm_strategies.py",
+    ("dm",      "script",   os.path.join("benchmarks", "dm_strategies", "benchmark_dm_strategies.py"),
      "Ovarian DM candidate-finder strategy benchmark (overlap/jaccard/time/memory)"),
     # ---- exact-scoring analyses: contributions, nulls, bootstrap, baselines ----
     ("exact",   "script",   os.path.join("analysis_tools", "check_exact.py"),
@@ -89,7 +96,7 @@ STEPS = [
      "Algorithm comparison incl. VQE-hybrid at threshold 0.02"),
     ("post",    "script",   os.path.join("analysis_tools", "post_tables.py"),
      "Edge recovery (corrected ground truth), single-edge scores, bootstrap hub/target tables"),
-    ("hwdry",   "script",   "run_hardware_postopt.py",
+    ("hwdry",   "script",   os.path.join("benchmarks", "hardware", "run_hardware_postopt.py"),
      "Post-optimization circuit: exact + noisy-device dry run (add --hardware to submit)"),
     ("ccc",     "script",   "cci_benchmarks/collector_ccc_comparison.py",
      "Collect CellChat / LIANA / scTenifoldXct results (run the tool scripts in their envs first)"),

@@ -140,9 +140,6 @@ def plot_scope_histograms(
     ``target1`` and ``target2`` (``run_scope`` includes these). Saves a PNG when
     ``figure_save_name`` is given and returns the distributions dict.
     """
-    import matplotlib
-    if not show:
-        matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     dists = post_optimization_distributions(
@@ -203,9 +200,6 @@ def plot_scope_report(
     biologically allowed ligand->receptor pairs.
     """
     import os as _os
-    import matplotlib
-    if not show:
-        matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     _os.makedirs(out_dir, exist_ok=True)
@@ -586,9 +580,6 @@ def compare_norms(
 
 def _plot_norm_comparison(summary, out_dir, show):
     import os as _os
-    import matplotlib
-    if not show:
-        matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import numpy as _np
 

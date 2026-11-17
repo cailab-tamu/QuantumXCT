@@ -23,9 +23,14 @@ HERE = os.getcwd()
 SNAP = os.path.join(HERE, "..", "..", "Claude outputs", "_snapshot_python_for_review.tgz")
 
 FILES = (sorted("qxct/" + f for f in os.listdir("qxct") if f.endswith(".py"))
-         + ["run_all.py", "run_hardware_postopt.py", "collector_ccc_comparison.py",
-            "scaling_benchmark.py", "benchmark_dm_strategies.py", "clean_outputs.py",
-            "export_notebooks_to_py.py", "simCellsSpace/simulate_cells.py"]
+         + ["run_all.py",
+            "benchmarks/hardware/run_hardware_postopt.py",
+            "benchmarks/scaling/scaling_benchmark.py",
+            "benchmarks/dm_strategies/benchmark_dm_strategies.py",
+            "benchmarks/dm_strategies/test_dm_strategies.py",
+            "cci_benchmarks/collector_ccc_comparison.py",
+            "data_prep/prepare_sim.py", "data_prep/pull_ovarian.py", "data_prep/export_metadata.py",
+            "simCellsSpace/ground_truth.py", "LR_databases/lr_pairs.py"]
          + sorted("analysis_tools/" + f for f in os.listdir("analysis_tools") if f.endswith(".py") and f != "__init__.py")
          + sorted("tests/" + f for f in os.listdir("tests") if f.endswith(".py")))
 

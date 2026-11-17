@@ -4,6 +4,8 @@ sys.path.insert(0, os.getcwd())
 import numpy as np, pandas as pd
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
+from matplotlib.lines import Line2D
 from sklearn.metrics import roc_curve, roc_auc_score
 
 R = "results/analyses"; F = os.path.join(R, "figures"); os.makedirs(F, exist_ok=True)
@@ -41,22 +43,29 @@ ax[1].bar(x + w / 2, ro.pct_LOO_of_total_reduction, w, color=AQUA, label="leave-
 ax[1].set_xticks(x); ax[1].set_xticklabels([g.replace(" -> ", "→") for g in ro.gate], rotation=35, ha="right")
 ax[1].set_ylabel("% of total KL reduction"); ax[1].set_title("b  Exact, re-optimized angles", loc="left")
 ax[1].legend(fontsize=7)
-fig.tight_layout(); save(fig, "figS1_exact_vs_sampled")
+fig.tight_layout(); save(fig, "figS3_exact_vs_sampled")
 
-# ---------- Fig S2: random-topology null + local null ----------
-fig, axs = plt.subplots(1, 2, figsize=(7.2, 2.7))
-for ax, name in zip(axs, ["ovarian", "synthetic"]):
+# ---------- Fig S1: random-topology null + local null ----------
+# (matches the notebook: uppercase A/B bold titles, shared legend below both panels,
+#  QuantumXCT line at the exact re-optimized loss)
+fig, axs = plt.subplots(1, 2, figsize=(7.2, 3.1))
+for ax, name, panel in zip(axs, ["ovarian", "synthetic"], ["A", "B"]):
     m = summ[name]; bins = 25
     for tag, col in [("intra", ORANGE), ("inter", AQUA), ("all", BLUE)]:
         v = pd.read_csv(f"{R}/{name}_random_null_{tag}.csv").iloc[:, 0].values
-        lab = {"intra": "random within-cell (GRN)", "inter": "random cross-cell (LR)", "all": "random any"}[tag]
-        ax.hist(v, bins=bins, color=col, alpha=0.55, label=lab)
-    ax.axvline(m["final_kl"], color="#0b0b0b", lw=1.5, label="QuantumXCT topology")
-    ax.axvline(m["local_RY_only_kl"], color=VIOLET, lw=1.5, ls="--", label=f"local RY, no 2-qubit gates ({m['local_RY_only_params']} dof)")
+        ax.hist(v, bins=bins, color=col, alpha=0.55)
+    ax.axvline(m["final_kl_exact_reoptimized"], color="#0b0b0b", lw=1.6)   # QuantumXCT
+    ax.axvline(m["local_RY_only_kl"], color=VIOLET, lw=1.6, ls="--")        # local-RY
     ax.set_xlabel("exact KL after angle optimization"); ax.set_ylabel("# random topologies")
-    ax.set_title(f"{'a' if name=='ovarian' else 'b'}  {name} ({m['n_gates']} gates)", loc="left")
-axs[0].legend(fontsize=6.5, loc="upper right")
-fig.tight_layout(); save(fig, "figS2_random_null")
+    ax.set_title(f"{panel}  {name.capitalize()} ({m['n_gates']} gates)", loc="left", fontsize=10, fontweight="bold")
+handles = [Patch(fc=BLUE, alpha=0.55, label="Any pair"),
+           Patch(fc=AQUA, alpha=0.55, label="Cross-cell (LR)"),
+           Patch(fc=ORANGE, alpha=0.55, label="Within-cell (GRN)"),
+           Line2D([0], [0], color="#0b0b0b", lw=1.6, label="QuantumXCT"),
+           Line2D([0], [0], color=VIOLET, lw=1.6, ls="--", label="Local-RY")]
+fig.legend(handles=handles, loc="lower center", ncol=5, fontsize=8.5, frameon=False,
+           bbox_to_anchor=(0.5, -0.02), columnspacing=1.4, handlelength=1.6)
+fig.tight_layout(rect=[0, 0.07, 1, 1]); save(fig, "figS1_random_null")
 
 # ---------- Fig S3 (budget sweep) removed ----------
 # The effective-dof budget-matched benchmark (budget_sweep_v2 / budget_matched_v2) was
@@ -119,65 +128,15 @@ _scal = next((p for p in _scal_cands if os.path.exists(p)),
              next(iter(sorted(_glob.glob("results/scaling/scaling_results*.csv"))), _scal_cands[-1]))
 sc = pd.read_csv(_scal)
 fig, axs = plt.subplots(1, 2, figsize=(6.8, 2.6))
-axs[0].plot(sc.total_qubits, sc.t_search_s, color=BLUE, marker="o", ms=3, lw=2, label="topology search")
-axs[0].plot(sc.total_qubits, sc.t_optimize_s, color=ORANGE, marker="o", ms=3, lw=2, label="angle optimization")
-axs[0].plot(sc.total_qubits, sc.t_screen_s, color=AQUA, marker="o", ms=3, lw=2, label="density-matrix screening")
-axs[0].set_yscale("log"); axs[0].set_xlabel("qubits N = n1 + n2"); axs[0].set_ylabel("wall-clock time (s)")
-axs[0].legend(fontsize=6.5); axs[0].set_title("a  measured stage times", loc="left")
+axs[0].plot(sc.total_qubits, sc.t_search_s, color=BLUE, marker="o", ms=3, lw=2, label=r"$\tau$ search")
+axs[0].plot(sc.total_qubits, sc.t_optimize_s, color=ORANGE, marker="o", ms=3, lw=2, label=r"$\theta_{\mathrm{opt}}$")
+axs[0].plot(sc.total_qubits, sc.t_screen_s, color=AQUA, marker="o", ms=3, lw=2, label=r"$\rho$ screening")
+axs[0].set_yscale("log"); axs[0].set_xlabel("Qubits N = n1 + n2"); axs[0].set_ylabel("Wall-clock time (s)")
+axs[0].legend(fontsize=6.5); axs[0].set_title("A  Measured stage times", loc="left")
 N = np.arange(2, 31)
-axs[1].plot(N, 16 * 4.0 ** N / 1e9, color=AQUA, lw=2, label=r"dense $\Delta\rho$: $16\cdot4^N$ B")
-axs[1].plot(N, 16 * 2.0 ** N / 1e9, color=BLUE, lw=2, label=r"statevector: $16\cdot2^N$ B")
+axs[1].plot(N, 16 * 4.0 ** N / 1e9, color=AQUA, lw=2, label=r"$\Delta\rho$: $16\cdot4^N$ B")
+axs[1].plot(N, 16 * 2.0 ** N / 1e9, color=BLUE, lw=2, label=r"SV: $16\cdot2^N$ B")
 axs[1].axhline(64, color=GRAY, ls=":", lw=1); axs[1].text(3, 90, "64 GB", fontsize=7, color="#52514e")
-axs[1].set_yscale("log"); axs[1].set_xlabel("qubits N"); axs[1].set_ylabel("memory (GB)")
-axs[1].legend(fontsize=6.5); axs[1].set_title("b  classical-simulation memory", loc="left")
+axs[1].set_yscale("log"); axs[1].set_xlabel("Qubits N"); axs[1].set_ylabel("Memory (GB)")
+axs[1].legend(fontsize=6.5); axs[1].set_title("B  Classical-simulation memory", loc="left")
 fig.tight_layout(); save(fig, "figS6_scaling")
-
-# ---------- Fig S7: noisy dry run ----------
-hw = json.load(open("results/hardware/hardware_postopt_report.json"))
-k = [x for x in hw if x.startswith("fake_noisy")][0]
-labels = ["exact", "noisy (raw)", "noisy (readout-corrected)"]
-base = [hw["exact"]["baseline_kl"], hw[k]["baseline"]["kl_total"], hw[k]["baseline"]["kl_readout_corrected"]["kl_total"]]
-fin = [hw["exact"]["final_kl"], hw[k]["optimized"]["kl_total"], hw[k]["optimized"]["kl_readout_corrected"]["kl_total"]]
-fig, ax = plt.subplots(figsize=(4.2, 2.6)); x = np.arange(3); w = 0.38
-ax.bar(x - w / 2, base, w, color=GRAY, label="baseline (no gates)")
-ax.bar(x + w / 2, fin, w, color=BLUE, label="optimized circuit")
-ax.set_xticks(x); ax.set_xticklabels(labels, fontsize=7.5); ax.set_ylabel("KL (cell1 + cell2)")
-ax.legend(fontsize=7); ax.set_title(k.replace("fake_noisy_", "noise model: "), loc="left", fontsize=8)
-fig.tight_layout(); save(fig, "figS7_hardware_dryrun")
-print("figures written to", F)
-
-# ---------- Fig S8: hardware device results (mitigation sweep + ZNE) ----------
-hk = [x for x in hw if x.startswith("hardware_")]
-if hk:
-    order = ["raw", "readout", "dd", "twirling", "all"]
-    bkd = hk[0].split("__")[0].replace("hardware_", "")
-    red = {n: hw[f"hardware_{bkd}__{n}"]["reduction_pct_raw"]
-           for n in order if f"hardware_{bkd}__{n}" in hw}
-    ideal = hw["exact"]["reduction_pct"]
-    labmap = {"raw": "Raw", "readout": "Readout", "dd": "DD", "twirling": "Twirl", "all": "All"}
-    labs = [labmap[n] for n in order if n in red]; vals = [red[n] for n in order if n in red]
-    fig, (axL, axR) = plt.subplots(1, 2, figsize=(9.2, 3.6))
-    cols = ["#1F3B73", "#3C6BB0", "#8FA9D0", "#8FA9D0", "#B7C4DC"][:len(vals)]
-    axL.bar(range(len(vals)), vals, color=cols, width=0.72, zorder=3, edgecolor="white")
-    axL.axhline(ideal, ls="--", lw=1.3, color="#B00020", zorder=2)
-    axL.text(len(vals) - 0.5, ideal + 0.6, f"noiseless ideal {ideal:.1f}%", ha="right", va="bottom",
-             color="#B00020", fontsize=8)
-    for i, v in enumerate(vals):
-        axL.text(i, v - 4.5, f"{v:.1f}", ha="center", va="top", color="white", fontsize=8, fontweight="bold")
-    axL.set_xticks(range(len(vals))); axL.set_xticklabels(labs)
-    axL.set_ylabel("KL loss reduction (%)"); axL.set_ylim(0, 100)
-    axL.set_title(f"a  Error-mitigation sweep ({bkd})", loc="left", fontsize=9)
-    zz = hw.get("zne", {})
-    if zz.get("scales"):
-        sc = np.array([r["scale"] for r in zz["scales"]], float)
-        kl = np.array([r["kl_total"] for r in zz["scales"]], float)
-        lin = np.polyfit(sc, kl, 1); xs = np.linspace(0, sc.max() + 0.3, 100)
-        axR.plot(xs, np.polyval(lin, xs), "-", color="#1F3B73", lw=1.4)
-        axR.plot(sc, kl, "o", color="#1F3B73", ms=8)
-        y0 = float(np.polyval(lin, 0.0))
-        axR.plot(0, y0, "D", color="#B00020", ms=8, label=f"zero-noise {y0:.3f}")
-        axR.axhline(hw["exact"]["final_kl"], ls=":", lw=1.1, color="#555")
-        axR.set_xlabel(r"noise scale factor $\lambda$"); axR.set_ylabel("KL loss (optimized)")
-        axR.set_title("b  Zero-noise extrapolation", loc="left", fontsize=9)
-        axR.legend(fontsize=8, loc="upper left")
-    fig.tight_layout(); save(fig, "figS8_hardware_device")

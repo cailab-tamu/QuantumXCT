@@ -1904,12 +1904,25 @@ def kl_to_qubo_matrix(kl_matrix: np.ndarray, initial_kl_sum: float) -> np.ndarra
 
 #from qiskit.primitives import StatevectorEstimator
 
+def default_optimization_level(backend) -> int:
+    """Transpiler level to use for a backend when none is given.
+
+    0 for an ideal simulator (a backend without a qubit-connectivity map, such as
+    ``AerSimulator()``): no routing is needed and heavier optimization only adds
+    risk. 3 for a real device or an emulation of one (``coupling_map`` present,
+    e.g. an IBM backend or ``AerSimulator.from_backend(FakeBrisbane())``), where
+    layout and routing on the device connectivity matter.
+    """
+    return 0 if getattr(backend, "coupling_map", None) is None else 3
+
+
 def vqe_solver(
     ansatz, # Renamed from 'cirquit' for common convention
     hamiltonian,
     backend,
     optimizer_method: str = "COBYLA", # "L-BFGS-B | COBYLA
-    niter: int = 100
+    niter: int = 100,
+    optimization_level: Optional[int] = None,
 ):
     """
     Performs a Variational Quantum Eigensolver (VQE) optimization.
@@ -1943,6 +1956,11 @@ def vqe_solver(
                                        histogram data when creating the observable.
         optimizer_method (str): The optimization method to use for scipy.minimize
                                 (e.g., "L-BFGS-B", "COBYLA", "SLSQP").
+        optimization_level (int | None): Qiskit transpiler level (0-3) used to map
+                                the ansatz onto the backend's connectivity and native
+                                gates. None (default) = automatic, see
+                                ``default_optimization_level``: 0 on an ideal
+                                simulator, 3 on a device or device emulation.
 
     Returns:
         tuple: A tuple containing:
@@ -1962,8 +1980,18 @@ def vqe_solver(
     num_qubits = ansatz.num_qubits # Get number of qubits from the circuit
 
     # make quantum circuit compatible to the backend
-    pm = generate_preset_pass_manager(backend = backend, optimization_level=3)
+    # Transpile the ansatz for the backend: qubit layout/routing on its
+    # connectivity + native gates. optimization_level 0-3 (None = automatic).
+    if optimization_level is None:
+        optimization_level = default_optimization_level(backend)
+    print(f"VQE ansatz transpiled at optimization_level={optimization_level} "
+          f"({'device connectivity' if getattr(backend, 'coupling_map', None) is not None else 'ideal simulator'})")
+    pm = generate_preset_pass_manager(backend=backend, optimization_level=optimization_level)
     ansatz_isa = pm.run(ansatz)
+    # The transpiler may place the logical qubits on different physical qubits;
+    # re-index the Hamiltonian the same way so each Pauli term acts on the right qubit.
+    _layout = getattr(ansatz_isa, "layout", None)
+    hamiltonian_isa = hamiltonian.apply_layout(_layout) if _layout is not None else hamiltonian
 
     estimator = Estimator(mode=backend)
     estimator.options.default_shots = 1024
@@ -2009,7 +2037,9 @@ def vqe_solver(
         else:
             print_criteria = 20
 
-        current_cost = cost_func_wrapper(xk, ansatz, hamiltonian, estimator)
+        # evaluate the TRANSPILED circuit/observable (the raw ansatz has gates and
+        # qubit indices a device backend cannot run)
+        current_cost = cost_func_wrapper(xk, ansatz_isa, hamiltonian_isa, estimator)
         cost_values.append(current_cost)
 
         # Print the current cost only every 20 iterations
@@ -2025,7 +2055,7 @@ def vqe_solver(
         x0_interaction,
         # IMPORTANT: Pass static_params and variable_param_objects as fixed arguments
         # The cost_func_wrapper will use xk (the first argument) with these to bind parameters.
-        args=(ansatz_isa, hamiltonian, estimator),
+        args=(ansatz_isa, hamiltonian_isa, estimator),
         method=optimizer_method, # Use the passed optimizer_method
         callback=callback_func, # Use the defined callback function
         options=options,
@@ -2059,7 +2089,8 @@ def evaluate_and_plot_ansatz(
     title: str = "VQE Quantum Sampler Results",
     figsize: Tuple[int, int] = (7, 5),
     show_plot: bool = True,
-    filename: Optional[str] = None
+    filename: Optional[str] = None,
+    optimization_level: Optional[int] = None,
 ) -> Tuple[Dict[str, int], QuantumCircuit]:
     """
     Evaluates a quantum ansatz, optionally plots results, and returns the circuit and counts.
@@ -2091,8 +2122,10 @@ def evaluate_and_plot_ansatz(
     bound_circuit.assign_parameters(params, inplace=True)
     bound_circuit.measure_all()
 
-    # Transpile the circuit for the specific backend
-    pm = generate_preset_pass_manager(backend=backend, optimization_level=3)
+    # Transpile the circuit for the specific backend (level 0-3; None = automatic)
+    if optimization_level is None:
+        optimization_level = default_optimization_level(backend)
+    pm = generate_preset_pass_manager(backend=backend, optimization_level=optimization_level)
     transpiled_circuit = pm.run(bound_circuit)
 
     # Run the job

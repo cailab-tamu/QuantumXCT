@@ -225,7 +225,7 @@ def interaction_network(ax, topology, gene_list, n1, contributions=None,
     bidirectional : draw double-headed arrows (the gate marks a relationship; the
                     direction is not asserted).
     lr_pairs      : optional list of (ligand, receptor) gene-name tuples (e.g. from
-                    ``curate_lr_pairs``). When given, a cross-cell edge whose two
+                    ``LR_databases.lr_pairs.curate_lr_pairs``). When given, a cross-cell edge whose two
                     genes form one of these pairs is drawn as a VALIDATED ligand-
                     receptor link (solid purple); any other cross-cell edge is a
                     candidate link (dashed, lighter). This restores the LR linking:
